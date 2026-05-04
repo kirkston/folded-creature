@@ -164,11 +164,18 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
   const [color, setColor]       = useState("#1a1a1a");
   const [brushSize, setBrushSize] = useState(5);
   const [tool, setTool]         = useState("pen");
+  const [zoom, setZoom]         = useState(false);  // false=normal, true=2x zoom
   const toolRef      = useRef(tool);
   const colorRef     = useRef(color);
   const brushRef     = useRef(brushSize);
+  const zoomRef      = useRef(zoom);
   const isDrawingRef = useRef(false);
   const lastPos      = useRef(null);
+
+  useEffect(() => { toolRef.current  = tool;      }, [tool]);
+  useEffect(() => { colorRef.current = color;     }, [color]);
+  useEffect(() => { brushRef.current = brushSize; }, [brushSize]);
+  useEffect(() => { zoomRef.current  = zoom;      }, [zoom]);
 
   useEffect(() => { toolRef.current  = tool;      }, [tool]);
   useEffect(() => { colorRef.current = color;     }, [color]);
@@ -237,6 +244,7 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
       return { x: (src.clientX - r.left) * sx, y: (src.clientY - r.top) * sy };
     };
     const onStart = (e) => {
+      if (zoomRef.current) return; // zoom mode — let touch scroll
       e.preventDefault();
       const pos = getPos(e);
       const ctx = canvas.getContext("2d");
@@ -257,6 +265,7 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
       ctx.fill();
     };
     const onMove  = (e) => {
+      if (zoomRef.current) return; // zoom mode — let touch scroll
       e.preventDefault();
       if (!isDrawingRef.current) return;
       const ctx = canvas.getContext("2d");
@@ -305,10 +314,29 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
         {section.hint}
       </div>
 
-      <div style={{ position:"relative", width:"100%", borderRadius:16, overflow:"hidden",
-        boxShadow:"0 4px 24px #C0392B22", border:"2px solid #e8c8c8", touchAction:"none" }}>
-        <canvas ref={canvasRef} width={CANVAS_W} height={CANVAS_H} style={{ display:"block", width:"100%" }} />
-        {peekImageData && (
+      {/* Canvas — zoom wraps it in a scrollable container when active */}
+      <div style={{
+        width:"100%", borderRadius: zoom ? 0 : 16,
+        overflow: zoom ? "auto" : "hidden",
+        boxShadow:"0 4px 24px #C0392B22",
+        border:"2px solid #e8c8c8",
+        touchAction: zoom ? "pan-x pan-y" : "none",
+        WebkitOverflowScrolling:"touch",
+        position:"relative",
+        maxHeight: zoom ? "60vh" : undefined,
+      }}>
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_W}
+          height={CANVAS_H}
+          style={{
+            display:"block",
+            width: zoom ? CANVAS_W * 2 + "px" : "100%",
+            height: zoom ? CANVAS_H * 2 + "px" : undefined,
+            touchAction: zoom ? "pan-x pan-y" : "none",
+          }}
+        />
+        {peekImageData && !zoom && (
           <div style={{ position:"absolute", top: PEEK_H + 2, left:8, pointerEvents:"none",
             fontFamily:"'Nunito',sans-serif", fontSize:10, color:"#c9a0a0" }}>
             ↑ connect here
@@ -316,7 +344,13 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
         )}
       </div>
 
-      {/* Colour picker — spectrum + presets */}
+      {zoom && (
+        <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#8e44ad",
+          textAlign:"center", background:"#f5eeff", borderRadius:8, padding:"5px 10px",
+          width:"100%", boxSizing:"border-box" }}>
+          Zoom mode — scroll to navigate. Tap 🔍 again to draw.
+        </div>
+      )}
       <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:6 }}>
         {/* Spectrum + eraser row */}
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
@@ -335,6 +369,11 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
             border:"2px solid #ddd", flexShrink:0,
             boxShadow: tool==="pen" ? "0 0 0 2px #fff, 0 0 0 4px " + color + "88" : "none" }} />
           <div style={{ flex:1 }} />
+          <button onClick={() => setZoom(z => !z)} style={{
+            padding:"5px 10px", borderRadius:20, fontSize:14, cursor:"pointer",
+            border:`2px solid ${zoom ? "#C0392B" : "#ddd"}`,
+            background: zoom ? "#fdf0f0" : "#fff", fontFamily:"'Nunito',sans-serif",
+          }}>{zoom ? "🔍 ×2" : "🔍 Zoom"}</button>
           <button onClick={() => setTool(t => t==="bucket" ? "pen" : "bucket")} style={{
             padding:"5px 10px", borderRadius:20, fontSize:14, cursor:"pointer",
             border:`2px solid ${tool==="bucket" ? "#C0392B" : "#ddd"}`,
@@ -1887,23 +1926,34 @@ function rBtn(bg) {
 
 // ─── Main App ─────────────────────────────────────────────────────────────────
 export default function App() {
-  const [screen,         setScreen]        = useState("home");     // home | lobby | join | waiting | playing | handoff | reveal
-  const [mode,           setMode]          = useState("passplay"); // passplay | multiplayer
+  const [screen,         setScreen]        = useState("home");
+  const [mode,           setMode]          = useState("passplay");
   const [players,        setPlayers]       = useState(["","",""]);
   const [myName,         setMyName]        = useState("");
-  const [mySlot,         setMySlot]        = useState(null);       // 0,1,2 — which section I draw
+  const [currentSection, setCurrentSection]= useState(0);
+  const [drawings,       setDrawings]      = useState([]);
+
+  // Async multiplayer state
   const [gameCode,       setGameCode]      = useState("");
+  const [mySlot,         setMySlot]        = useState(null);
+  const [myPart,         setMyPart]        = useState(null);   // "head"|"body"|"legs"
+  const [gameSlots,      setGameSlots]     = useState({});
+  const [mpError,        setMpError]       = useState("");
   const [joinCode,       setJoinCode]      = useState("");
   const [joinError,      setJoinError]     = useState("");
   const [copyFeedback,   setCopyFeedback]  = useState("");
-  const [currentSection, setCurrentSection]= useState(0);
-  const [drawings,       setDrawings]      = useState([]);
-  const [lobbyPlayers,   setLobbyPlayers]  = useState([]);         // names as they join
-  const [slotDone,       setSlotDone]      = useState([false, false, false]); // which slots have drawings
-  const [anchors,        setAnchors]       = useState(null);    // { head_to_body: [...], body_to_legs: [...] }
+  const [storageStatus,  setStorageStatus] = useState("checking...");
   const pollRef = useRef(null);
 
-  // ── Deep-link join: if URL has ?code=XXXXX, jump straight to join screen ──
+  const PARTS = ["head", "body", "legs"];
+  const PART_SECTION = { head: 0, body: 1, legs: 2 };
+  const PART_HINTS = {
+    head: "Draw a head — any kind of creature! Finish near the bottom of the canvas.",
+    body: "Draw the body — arms, torso, whatever! Connect from the top anchor dots.",
+    legs: "Draw the legs and feet! Connect from the top anchor dots.",
+  };
+
+  // ── Deep-link: ?code=XXXXX jumps to join screen ──
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -1913,7 +1963,19 @@ export default function App() {
         setJoinCode(code.toUpperCase());
         setScreen("join");
       }
-    } catch(e) { /* ignore */ }
+    } catch(e) {}
+  }, []);
+
+  // ── Storage diagnostic ──
+  useEffect(() => {
+    (async () => {
+      try {
+        const m = await getStorageMode();
+        if (m === "firebase") setStorageStatus("ready · Firebase (cross-device)");
+        else if (m === "localStorage") setStorageStatus("ready · localStorage (cross-tab only)");
+        else setStorageStatus("ready · memory (single-tab test)");
+      } catch(e) { setStorageStatus("error: " + (e.message || String(e))); }
+    })();
   }, []);
 
   // ── Fonts ──
@@ -1939,184 +2001,109 @@ export default function App() {
     setScreen("playing");
   };
 
-  // ── Multiplayer helpers ──
-  const [mpError, setMpError] = useState("");
+  // ── Async multiplayer helpers ──
+  const pickRandomPart = (slots) => {
+    const taken = Object.values(slots).map(s => s.part);
+    const available = PARTS.filter(p => !taken.includes(p));
+    return available[Math.floor(Math.random() * available.length)];
+  };
 
-  // Build a fresh game object (concurrent mode: drawings is an object indexed by slot)
-  const newGame = (hostName) => ({
-    host: hostName,
-    players: [hostName],
-    status: "waiting",       // waiting | playing | done
-    anchors: null,           // populated when host starts
-    drawings: {},            // { 0: dataURL, 1: dataURL, 2: dataURL }
-  });
-
-  // ── Storage diagnostic — runs on mount to detect storage mode ──
-  const [storageStatus, setStorageStatus] = useState("checking...");
-  useEffect(() => {
-    (async () => {
-      try {
-        const mode = await getStorageMode();
-        if (mode === "firebase") {
-          setStorageStatus("ready · Firebase (cross-device)");
-        } else if (mode === "localStorage") {
-          setStorageStatus("ready · localStorage (cross-tab only)");
-        } else if (mode === "memory") {
-          setStorageStatus("ready · memory (single-tab test)");
-        } else {
-          setStorageStatus("unknown mode: " + mode);
-        }
-      } catch(e) {
-        setStorageStatus("error: " + (e.message || String(e)));
-      }
-    })();
-  }, []);
-
-  const createRoom = async () => {
-    console.log("[createRoom] tapped, name=", myName, "storageStatus=", storageStatus);
-    if (!myName.trim()) {
-      console.log("[createRoom] blocked: empty name");
-      return;
-    }
+  // Called when the creator finishes their drawing
+  const handleCreatorDone = async (drawing) => {
     setMpError("");
-    setMode("multiplayer");
-    // Reset any stale state from previous games
-    setSlotDone([false, false, false]);
-    setDrawings([]);
-    setAnchors(null);
     const code = makeCode();
-    console.log("[createRoom] generated code=", code);
-    try {
-      await storeGame(code, newGame(myName));
-      console.log("[createRoom] stored OK");
-    } catch(e) {
-      console.error("[createRoom] storeGame failed:", e);
-      setMpError("Couldn't create room: " + (e.message || String(e)));
-      return;
-    }
+    const part = PARTS[Math.floor(Math.random() * 3)];
+    const anchors = makeAnchors(CANVAS_W);
+    const game = {
+      status: "drawing",
+      anchors,
+      slots: { 0: { name: myName, part, drawing } },
+      createdAt: Date.now(),
+    };
+    try { await storeGame(code, game); }
+    catch(e) { setMpError("Couldn't save: " + e.message); return; }
     setGameCode(code);
     setMySlot(0);
-    setLobbyPlayers([myName]);
-    setScreen("waiting");
-    startPolling(code, 0);
+    setMyPart(part);
+    setGameSlots(game.slots);
+    setScreen("share");
   };
 
-  const joinRoom = async () => {
-    const code = joinCode.trim().toUpperCase();
-    if (!code || !myName.trim()) { setJoinError("Enter your name and room code"); return; }
-    setMpError("");
-    setMode("multiplayer");
-    // Reset stale state
-    setSlotDone([false, false, false]);
-    setDrawings([]);
-    setAnchors(null);
-    let g;
-    try {
-      g = await loadGame(code);
-    } catch(e) {
-      setJoinError("Couldn't reach the room: " + e.message);
-      return;
-    }
-    if (!g) { setJoinError("Room not found — check the code"); return; }
-    if (g.players.length >= 3) { setJoinError("Room is full (3 players)"); return; }
-    if (g.players.includes(myName)) { setJoinError("That name is already in the room — pick a different one"); return; }
-    const slot = g.players.length;
-    g.players.push(myName);
-    try {
-      await storeGame(code, g);
-    } catch(e) {
-      setJoinError("Couldn't join: " + e.message);
-      return;
-    }
-    setGameCode(code); setMySlot(slot);
-    setJoinError("");
-    setLobbyPlayers(g.players);
-    setScreen("waiting");
-    startPolling(code, slot);
-  };
-
-  // Single shared polling function used by both host and joiners
-  const startPolling = (code, mySlotLocal) => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(async () => {
-      let g;
-      try { g = await loadGame(code); }
-      catch(e) { setMpError("Connection error: " + e.message); return; }
-      if (!g) return;
-      // Firebase strips empty objects/arrays — normalise
-      if (!g.drawings) g.drawings = {};
-      if (!g.players) g.players = [];
-      setLobbyPlayers(g.players);
-      // Track per-slot completion for the waiting screen UI
-      setSlotDone([!!g.drawings[0], !!g.drawings[1], !!g.drawings[2]]);
-      if (g.anchors) setAnchors(g.anchors);
-      // Convert sparse drawings object → array for display purposes
-      const drawingsArr = [g.drawings[0], g.drawings[1], g.drawings[2]].filter(Boolean);
-      setDrawings(drawingsArr);
-
-      // If the game has started AND I haven't drawn yet, jump to my drawing screen
-      if (g.status === "playing" && !g.drawings[mySlotLocal]) {
-        clearInterval(pollRef.current);
-        setCurrentSection(mySlotLocal);
-        setScreen("playing");
-        return;
-      }
-      // If everyone has finished, show reveal
-      if (g.status === "done" || (g.drawings[0] && g.drawings[1] && g.drawings[2])) {
-        clearInterval(pollRef.current);
-        // Build sections array in slot order for reveal
-        const orderedDrawings = [0, 1, 2].map(i => g.drawings[i]).filter(Boolean);
-        setDrawings(orderedDrawings);
-        setPlayers(g.players);
-        setScreen("reveal");
-      }
-    }, POLL_MS);
-  };
-
-  const startMultiplayer = async () => {
+  // Called when a joiner finishes their drawing
+  const handleJoinerDone = async (drawing) => {
     setMpError("");
     let g;
     try { g = await loadGame(gameCode); }
-    catch(e) { setMpError("Couldn't start: " + e.message); return; }
+    catch(e) { setMpError("Couldn't save: " + e.message); return; }
     if (!g) { setMpError("Game not found"); return; }
-    g.status = "playing";
-    g.anchors = makeAnchors(CANVAS_W);
+    if (!g.slots) g.slots = {};
+    g.slots[mySlot] = { name: myName, part: myPart, drawing };
+    const slotCount = Object.keys(g.slots).length;
+    if (slotCount >= 3) g.status = "complete";
     try { await storeGame(gameCode, g); }
-    catch(e) { setMpError("Couldn't start: " + e.message); return; }
-    // Polling will pick up the status change and route everyone (including host) to playing
-  };
-
-  // When this player finishes their drawing, post it and wait for the others
-  const handleMultiplayerDone = async (data) => {
-    setMpError("");
-    let g;
-    try { g = await loadGame(gameCode); }
-    catch(e) { setMpError("Save failed: " + e.message); setScreen("playing"); return; }
-    if (!g) { setMpError("Game lost"); return; }
-    if (!g.drawings) g.drawings = {};
-    if (!g.players) g.players = [];
-    g.drawings[mySlot] = data;
-    if (g.drawings[0] && g.drawings[1] && g.drawings[2]) g.status = "done";
-    try { await storeGame(gameCode, g); }
-    catch(e) { setMpError("Save failed: " + e.message); setScreen("playing"); return; }
-    if (g.status === "done") {
-      setDrawings([g.drawings[0], g.drawings[1], g.drawings[2]]);
-      setPlayers(g.players);
+    catch(e) { setMpError("Couldn't save: " + e.message); return; }
+    setGameSlots(g.slots);
+    if (g.status === "complete") {
+      // Build ordered drawings by part
+      const byPart = {};
+      Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
+      const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
+      const names = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+      setDrawings(ordered);
+      setPlayers(names);
       setScreen("reveal");
     } else {
-      setScreen("waiting");
-      startPolling(gameCode, mySlot);
+      setScreen("share");
     }
   };
 
-  useEffect(() => () => clearInterval(pollRef.current), []);
+  // Join an existing game via code
+  const joinAsyncGame = async () => {
+    const code = joinCode.trim().toUpperCase();
+    if (!code || !myName.trim()) { setJoinError("Enter your name and the room code"); return; }
+    setJoinError(""); setMpError("");
+    let g;
+    try { g = await loadGame(code); }
+    catch(e) { setJoinError("Couldn't reach the game: " + e.message); return; }
+    if (!g) { setJoinError("Game not found — check the code"); return; }
+    if (!g.slots) g.slots = {};
+    // If complete — show reveal
+    if (g.status === "complete" || Object.keys(g.slots).length >= 3) {
+      const byPart = {};
+      Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
+      const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
+      const names = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+      setDrawings(ordered);
+      setPlayers(names);
+      setGameCode(code);
+      setGameSlots(g.slots);
+      setScreen("reveal");
+      return;
+    }
+    // Check name not taken
+    const takenNames = Object.values(g.slots).map(s => s.name);
+    if (takenNames.includes(myName.trim())) {
+      setJoinError("That name is taken — pick a different one"); return;
+    }
+    const part = pickRandomPart(g.slots);
+    const slot = Object.keys(g.slots).length;
+    setGameCode(code);
+    setMySlot(slot);
+    setMyPart(part);
+    setGameSlots(g.slots);
+    setMode("multiplayer");
+    setCurrentSection(PART_SECTION[part]);
+    setScreen("async-drawing");
+  };
 
   const reset = () => {
     clearInterval(pollRef.current);
     setScreen("home"); setPlayers(["","",""]); setMyName(""); setMySlot(null);
-    setGameCode(""); setJoinCode(""); setJoinError(""); setCurrentSection(0);
-    setDrawings([]); setLobbyPlayers([]);
+    setMyPart(null); setGameCode(""); setJoinCode(""); setJoinError("");
+    setCurrentSection(0); setDrawings([]); setGameSlots({}); setMpError("");
   };
+
+  useEffect(() => () => clearInterval(pollRef.current), []);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // HOME
@@ -2125,31 +2112,66 @@ export default function App() {
     <div style={page}>
       <Fonts />
       <div style={{ width:"100%", maxWidth:420, display:"flex", flexDirection:"column", gap:0 }}>
-        {/* Header */}
         <div style={{ padding:"48px 24px 32px", textAlign:"center" }}>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:42, fontWeight:900,
             color:"#3d1010", letterSpacing:-1, lineHeight:1.1 }}>
-            Draw.<br/>Share.<br/>Surprise.
+            Folded<br/>Creature
           </div>
           <p style={{ fontFamily:"'Nunito',sans-serif", color:"#b07070", fontSize:14, marginTop:12 }}>
-            A folded paper creature game
+            Draw a creature together — one part at a time
           </p>
         </div>
-
-        {/* Mode cards */}
         <div style={{ padding:"0 16px", display:"flex", flexDirection:"column", gap:12 }}>
-          <button onClick={() => setScreen("lobby")} style={bigBtn("#C0392B")}>
-            Start New Game
+          {/* Primary CTA — async multiplayer */}
+          <div style={{ background:"#fff", borderRadius:20, padding:"20px 20px 16px",
+            boxShadow:"0 2px 12px rgba(192,57,43,0.10)", border:"1.5px solid #f5e8e8" }}>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700,
+              color:"#3d1010", marginBottom:6 }}>Play with friends</div>
+            <p style={{ fontFamily:"'Nunito',sans-serif", fontSize:13, color:"#b07070", margin:"0 0 14px" }}>
+              Draw your part, share the link. Friends draw theirs whenever — no need to be online at the same time.
+            </p>
+            <input placeholder="Your name..."
+              value={myName} onChange={e => setMyName(e.target.value)}
+              style={{ ...input, marginBottom:10 }} />
+            <button
+              onClick={() => {
+                if (!myName.trim()) return;
+                setMode("multiplayer");
+                setCurrentSection(Math.floor(Math.random() * 3));
+                setScreen("async-drawing");
+              }}
+              disabled={!myName.trim()}
+              style={bigBtn(!myName.trim() ? "#ddd" : "#C0392B", !myName.trim() ? "#aaa" : "#fff")}
+            >
+              Start Drawing
+            </button>
+          </div>
+
+          {/* Join a game */}
+          <button onClick={() => setScreen("join")}
+            style={bigBtn("#f2c4c4", "#3d1010")}>
+            Join a Friend's Game
           </button>
-          <button onClick={() => setScreen("join")} style={bigBtn("#f2c4c4", "#3d1010")}>
-            Join a Room
+
+          {/* Divider */}
+          <div style={{ display:"flex", alignItems:"center", gap:10, margin:"4px 0" }}>
+            <div style={{ flex:1, height:1, background:"#eee" }} />
+            <span style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#bbb" }}>or play on this phone</span>
+            <div style={{ flex:1, height:1, background:"#eee" }} />
+          </div>
+
+          {/* Pass and play */}
+          <button onClick={() => setScreen("lobby")}
+            style={{ ...bigBtn("#f8f0f0", "#b07070"), fontSize:14 }}>
+            Pass &amp; Play (one phone)
           </button>
         </div>
 
-        {/* Mode toggle pills */}
-        <div style={{ display:"flex", gap:12, padding:"24px 16px 0", justifyContent:"center" }}>
-          <ModeCard icon="📱" label="One Phone" sub="Pass & Play" active={true} />
-          <ModeCard icon="👥" label="Many Phones" sub="Use Room Code" active={true} />
+        {/* Storage status */}
+        <div style={{ fontFamily:"monospace", fontSize:10,
+          color: storageStatus.startsWith("ready · Firebase") ? "#27ae60" : "#b07070",
+          textAlign:"center", padding:"16px 16px 8px" }}>
+          {storageStatus}
         </div>
       </div>
     </div>
@@ -2250,8 +2272,8 @@ export default function App() {
       <Fonts />
       <div style={card}>
         <BackBtn onClick={() => setScreen("home")} />
-        <h2 style={title}>Join a Room</h2>
-        <p style={sub}>Get the code from whoever created the game.</p>
+        <h2 style={title}>Join a Game</h2>
+        <p style={sub}>Enter your name and the code your friend shared with you.</p>
         <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:10 }}>
           <input placeholder="Your name..." value={myName} onChange={e=>setMyName(e.target.value)} style={input} />
           <input placeholder="Room code (e.g. XK72A)..." value={joinCode}
@@ -2259,16 +2281,217 @@ export default function App() {
             style={{ ...input, fontFamily:"'Playfair Display',serif", fontSize:22, textAlign:"center", letterSpacing:4 }}
           />
           {joinError && <div style={{ color:"#C0392B", fontFamily:"'Nunito',sans-serif", fontSize:13, textAlign:"center" }}>{joinError}</div>}
-          <button onClick={joinRoom} style={bigBtn("#C0392B")}>Join Room</button>
+          <button onClick={joinAsyncGame} disabled={!myName.trim() || !joinCode.trim()} style={bigBtn(!myName.trim() || !joinCode.trim() ? "#ddd" : "#C0392B", !myName.trim() || !joinCode.trim() ? "#aaa" : "#fff")}>
+            Join &amp; Draw
+          </button>
         </div>
       </div>
     </div>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // WAITING (room lobby / between turns in multiplayer)
-  // ─────────────────────────────────────────────────────────────────────────────
-  if (screen === "waiting") return (
+  // ── ASYNC DRAWING — creator draws first, or joiner draws their assigned part ──
+  if (screen === "async-drawing") {
+    const isCreator = mySlot === null || mySlot === undefined;
+    const part = isCreator
+      ? ["head","body","legs"][currentSection]
+      : myPart;
+    const partLabel = part?.toUpperCase() || "";
+    const section = SECTIONS[PART_SECTION[part] ?? currentSection];
+    const hint = PART_HINTS[part] || section?.hint || "";
+    const slotSection = PART_SECTION[part] ?? currentSection;
+
+    // Who else has drawn already?
+    const otherSlots = Object.values(gameSlots || {});
+
+    return (
+      <div style={page}>
+        <Fonts />
+        <div style={{ ...card, maxWidth:460 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+            width:"100%", marginBottom:8 }}>
+            <div>
+              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#3d1010" }}>
+                You're drawing the <span style={{ color:"#C0392B" }}>{partLabel}</span>
+              </div>
+              <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070", marginTop:2 }}>
+                {hint}
+              </div>
+            </div>
+          </div>
+
+          {/* Show who else has drawn */}
+          {otherSlots.length > 0 && (
+            <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:"wrap" }}>
+              {otherSlots.map((s, i) => (
+                <div key={i} style={{ fontFamily:"'Nunito',sans-serif", fontSize:12,
+                  background:"#f5e8e8", borderRadius:20, padding:"3px 10px", color:"#C0392B", fontWeight:600 }}>
+                  ✓ {s.name} drew the {s.part}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <DrawingCanvas
+            sectionIndex={slotSection}
+            onDone={isCreator ? handleCreatorDone : handleJoinerDone}
+            peekImageData={null}
+            peekHeight={null}
+            anchors={null}
+          />
+
+          {mpError && (
+            <div style={{ color:"#C0392B", fontFamily:"'Nunito',sans-serif",
+              fontSize:13, textAlign:"center", marginTop:8 }}>{mpError}</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── SHARE — drawing saved, invite next player ──
+  if (screen === "share") {
+    const doneSlots = Object.values(gameSlots || {});
+    const remaining = 3 - doneSlots.length;
+    const drawnParts = doneSlots.map(s => s.part);
+    const remainingParts = ["head","body","legs"].filter(p => !drawnParts.includes(p));
+
+    const buildShareText = () => {
+      let url = "";
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.set("code", gameCode);
+        url = u.toString();
+      } catch(e) {}
+      const partList = doneSlots.map(s => `${s.name} drew the ${s.part}`).join(", ");
+      return url
+        ? `Help finish our Folded Creature! ${partList}. You need to draw: ${remainingParts.join(" or ")}. Join here: ${url}`
+        : `Help finish our Folded Creature! Code: ${gameCode}. You draw: ${remainingParts.join(" or ")}`;
+    };
+
+    const shareInvite = async () => {
+      const text = buildShareText();
+      if (navigator.share) {
+        try { await navigator.share({ title:"Folded Creature", text }); return; }
+        catch(e) { if (e.name === "AbortError") return; }
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopyFeedback("✓ Invite copied — paste it to your friend!");
+        setTimeout(() => setCopyFeedback(""), 3000);
+      } catch(e) {
+        window.prompt("Copy this invite:", text);
+      }
+    };
+
+    return (
+      <div style={page}>
+        <Fonts />
+        <div style={card}>
+          <div style={{ textAlign:"center", marginBottom:16 }}>
+            <div style={{ fontSize:48 }}>✓</div>
+            <h2 style={{ ...title, marginBottom:6 }}>Your part is saved!</h2>
+            <p style={{ ...sub, marginBottom:0 }}>
+              {remaining === 0
+                ? "All parts are done — check the reveal!"
+                : `${remaining} more player${remaining > 1 ? "s" : ""} still need${remaining === 1 ? "s" : ""} to draw.`}
+            </p>
+          </div>
+
+          {/* Who's drawn */}
+          <div style={{ width:"100%", marginBottom:16 }}>
+            {["head","body","legs"].map(part => {
+              const slot = doneSlots.find(s => s.part === part);
+              return (
+                <div key={part} style={{ display:"flex", alignItems:"center", gap:10,
+                  padding:"10px 0", borderBottom:"1px solid #f5e8e8" }}>
+                  <div style={{ width:32, height:32, borderRadius:"50%",
+                    background: slot ? "#C0392B" : "#f5e8e8",
+                    display:"flex", alignItems:"center", justifyContent:"center",
+                    fontFamily:"'Nunito',sans-serif", fontSize:13,
+                    color: slot ? "#fff" : "#ddd", fontWeight:700 }}>
+                    {slot ? "✓" : "?"}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:14, fontWeight:700,
+                      color: slot ? "#3d1010" : "#ccc" }}>
+                      {slot ? slot.name : "Waiting..."}
+                    </div>
+                    <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070" }}>
+                      draws the {part}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Room code — tap to copy */}
+          <button
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(gameCode);
+                setCopyFeedback("✓ Code copied!");
+                setTimeout(() => setCopyFeedback(""), 1800);
+              } catch(e) {}
+            }}
+            style={{ background:"#fdf0f0", border:"2px dashed #e8b4b4", borderRadius:16,
+              padding:"14px 24px", width:"100%", boxSizing:"border-box",
+              cursor:"pointer", marginBottom:10 }}>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:900,
+              color:"#C0392B", letterSpacing:6 }}>{gameCode}</div>
+            <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070", marginTop:2 }}>
+              {copyFeedback || "Tap to copy code"}
+            </div>
+          </button>
+
+          {remaining > 0 && (
+            <button onClick={shareInvite} style={bigBtn("#8e44ad")}>
+              Share Invite Link
+            </button>
+          )}
+
+          {copyFeedback && copyFeedback.includes("Invite") && (
+            <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#27ae60",
+              textAlign:"center", marginTop:8, fontWeight:600 }}>{copyFeedback}</div>
+          )}
+
+          {remaining === 0 && (
+            <button
+              onClick={async () => {
+                // Load game and show reveal
+                try {
+                  const g = await loadGame(gameCode);
+                  if (g?.slots) {
+                    const byPart = {};
+                    Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
+                    const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
+                    const names = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+                    setDrawings(ordered);
+                    setPlayers(names);
+                    setScreen("reveal");
+                  }
+                } catch(e) { setMpError("Couldn't load reveal: " + e.message); }
+              }}
+              style={bigBtn("#C0392B")}>
+              See the Creature! 🎨
+            </button>
+          )}
+
+          {mpError && (
+            <div style={{ color:"#C0392B", fontFamily:"'Nunito',sans-serif",
+              fontSize:13, textAlign:"center", marginTop:8 }}>{mpError}</div>
+          )}
+
+          <button onClick={reset} style={{ marginTop:12, background:"none", border:"none",
+            fontFamily:"'Nunito',sans-serif", fontSize:13, color:"#b07070",
+            cursor:"pointer", textDecoration:"underline" }}>
+            Start a new game
+          </button>
+        </div>
+      </div>
+    );
+  }
+
     <div style={page}>
       <Fonts />
       <div style={card}>
@@ -2429,12 +2652,12 @@ export default function App() {
   );
 
   // ─────────────────────────────────────────────────────────────────────────────
-  // PLAYING
+  // PLAYING (pass & play only)
   // ─────────────────────────────────────────────────────────────────────────────
   if (screen === "playing") {
     const section     = SECTIONS[currentSection];
     const prevDrawing = drawings[currentSection - 1];
-    const playerName  = mode === "multiplayer" ? myName : players[currentSection];
+    const playerName  = players[currentSection];
 
     return (
       <div style={page}>
@@ -2459,10 +2682,10 @@ export default function App() {
 
           <DrawingCanvas
             sectionIndex={currentSection}
-            onDone={mode === "multiplayer" ? handleMultiplayerDone : handleSectionDone}
-            peekImageData={mode === "multiplayer" ? null : (prevDrawing?.imageData || null)}
-            peekHeight={mode === "multiplayer" ? null : (prevDrawing?.croppedHeight || null)}
-            anchors={mode === "multiplayer" ? anchors : null}
+            onDone={handleSectionDone}
+            peekImageData={prevDrawing?.imageData || null}
+            peekHeight={prevDrawing?.croppedHeight || null}
+            anchors={null}
           />
         </div>
       </div>
