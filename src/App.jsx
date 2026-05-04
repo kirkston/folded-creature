@@ -2170,7 +2170,7 @@ export default function App() {
             Folded<br/>Creature
           </div>
           <p style={{ fontFamily:"'Nunito',sans-serif", color:"#b07070", fontSize:14, marginTop:12 }}>
-            Draw a creature together — one part at a time
+            Draw. Share. Surprise.
           </p>
         </div>
         <div style={{ padding:"0 16px", display:"flex", flexDirection:"column", gap:12 }}>
