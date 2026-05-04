@@ -164,7 +164,7 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
   const [color, setColor]       = useState("#1a1a1a");
   const [brushSize, setBrushSize] = useState(5);
   const [tool, setTool]         = useState("pen");
-  const [zoom, setZoom]         = useState(false);  // false=normal, true=2x zoom
+  const [zoom, setZoom]         = useState(false);
   const toolRef      = useRef(tool);
   const colorRef     = useRef(color);
   const brushRef     = useRef(brushSize);
@@ -257,7 +257,6 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
       isDrawingRef.current = true;
       lastPos.current = pos;
       // Draw a dot on tap so a quick tap (without dragging) still leaves a mark.
-      // For the eraser, use a transparent erase circle; for ink, fill a coloured circle.
       const size = toolRef.current === "eraser" ? brushRef.current * 5 : brushRef.current;
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, size / 2, 0, Math.PI * 2);
@@ -318,24 +317,16 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
       <div style={{
         width:"100%", borderRadius: zoom ? 0 : 16,
         overflow: zoom ? "auto" : "hidden",
-        boxShadow:"0 4px 24px #C0392B22",
-        border:"2px solid #e8c8c8",
+        boxShadow:"0 4px 24px #C0392B22", border:"2px solid #e8c8c8",
         touchAction: zoom ? "pan-x pan-y" : "none",
         WebkitOverflowScrolling:"touch",
-        position:"relative",
         maxHeight: zoom ? "60vh" : undefined,
       }}>
-        <canvas
-          ref={canvasRef}
-          width={CANVAS_W}
-          height={CANVAS_H}
-          style={{
-            display:"block",
-            width: zoom ? CANVAS_W * 2 + "px" : "100%",
-            height: zoom ? CANVAS_H * 2 + "px" : undefined,
-            touchAction: zoom ? "pan-x pan-y" : "none",
-          }}
-        />
+        <canvas ref={canvasRef} width={CANVAS_W} height={CANVAS_H} style={{
+          display:"block",
+          width: zoom ? CANVAS_W * 2 + "px" : "100%",
+          height: zoom ? CANVAS_H * 2 + "px" : undefined,
+        }} />
         {peekImageData && !zoom && (
           <div style={{ position:"absolute", top: PEEK_H + 2, left:8, pointerEvents:"none",
             fontFamily:"'Nunito',sans-serif", fontSize:10, color:"#c9a0a0" }}>
@@ -348,9 +339,11 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
         <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#8e44ad",
           textAlign:"center", background:"#f5eeff", borderRadius:8, padding:"5px 10px",
           width:"100%", boxSizing:"border-box" }}>
-          Zoom mode — scroll to navigate. Tap 🔍 again to draw.
+          Zoom mode — scroll to navigate · tap 🔍 again to draw
         </div>
       )}
+
+      {/* Colour picker — spectrum + presets */}
       <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:6 }}>
         {/* Spectrum + eraser row */}
         <div style={{ display:"flex", gap:8, alignItems:"center" }}>
@@ -371,19 +364,19 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
           <div style={{ flex:1 }} />
           <button onClick={() => setZoom(z => !z)} style={{
             padding:"5px 10px", borderRadius:20, fontSize:14, cursor:"pointer",
-            border:`2px solid ${zoom ? "#C0392B" : "#ddd"}`,
-            background: zoom ? "#fdf0f0" : "#fff", fontFamily:"'Nunito',sans-serif",
-          }}>{zoom ? "🔍 ×2" : "🔍 Zoom"}</button>
+            border:`2px solid ${zoom ? "#8e44ad" : "#ddd"}`,
+            background: zoom ? "#f5eeff" : "#fff", fontFamily:"'Nunito',sans-serif",
+          }}>{zoom ? "🔍×2" : "🔍"}</button>
           <button onClick={() => setTool(t => t==="bucket" ? "pen" : "bucket")} style={{
             padding:"5px 10px", borderRadius:20, fontSize:14, cursor:"pointer",
             border:`2px solid ${tool==="bucket" ? "#C0392B" : "#ddd"}`,
             background: tool==="bucket" ? "#fdf0f0" : "#fff", fontFamily:"'Nunito',sans-serif",
-          }}>🪣 Fill</button>
+          }}>🪣</button>
           <button onClick={() => setTool(t => t==="eraser" ? "pen" : "eraser")} style={{
             padding:"5px 10px", borderRadius:20, fontSize:14, cursor:"pointer",
             border:`2px solid ${tool==="eraser" ? "#C0392B" : "#ddd"}`,
             background: tool==="eraser" ? "#fdf0f0" : "#fff", fontFamily:"'Nunito',sans-serif",
-          }}>🧹 Eraser</button>
+          }}>🧹</button>
         </div>
         {/* Preset swatches */}
         <div style={{ display:"flex", gap:5, flexWrap:"wrap", alignItems:"center" }}>
@@ -1936,7 +1929,7 @@ export default function App() {
   // Async multiplayer state
   const [gameCode,       setGameCode]      = useState("");
   const [mySlot,         setMySlot]        = useState(null);
-  const [myPart,         setMyPart]        = useState(null);   // "head"|"body"|"legs"
+  const [myPart,         setMyPart]        = useState(null);
   const [gameSlots,      setGameSlots]     = useState({});
   const [mpError,        setMpError]       = useState("");
   const [joinCode,       setJoinCode]      = useState("");
@@ -1953,7 +1946,6 @@ export default function App() {
     legs: "Draw the legs and feet! Connect from the top anchor dots.",
   };
 
-  // ── Deep-link: ?code=XXXXX jumps to join screen ──
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -1966,7 +1958,6 @@ export default function App() {
     } catch(e) {}
   }, []);
 
-  // ── Storage diagnostic ──
   useEffect(() => {
     (async () => {
       try {
@@ -1978,37 +1969,33 @@ export default function App() {
     })();
   }, []);
 
-  // ── Fonts ──
   const Fonts = () => (
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
   );
 
-  // ── Pass-and-play helpers ──
+  // Pass-and-play
   const startPassPlay = () => {
     if (players.some(p => !p.trim())) return;
     setMode("passplay"); setScreen("playing"); setCurrentSection(0); setDrawings([]);
   };
-
   const handleSectionDone = (data) => {
     const nd = [...drawings, data];
     setDrawings(nd);
     if (currentSection < 2) setScreen("handoff");
     else setScreen("reveal");
   };
-
   const handleHandoffContinue = () => {
     setCurrentSection(c => c+1);
     setScreen("playing");
   };
 
-  // ── Async multiplayer helpers ──
+  // Async multiplayer
   const pickRandomPart = (slots) => {
     const taken = Object.values(slots).map(s => s.part);
     const available = PARTS.filter(p => !taken.includes(p));
     return available[Math.floor(Math.random() * available.length)];
   };
 
-  // Called when the creator finishes their drawing
   const handleCreatorDone = async (drawing) => {
     setMpError("");
     const code = makeCode();
@@ -2022,14 +2009,10 @@ export default function App() {
     };
     try { await storeGame(code, game); }
     catch(e) { setMpError("Couldn't save: " + e.message); return; }
-    setGameCode(code);
-    setMySlot(0);
-    setMyPart(part);
-    setGameSlots(game.slots);
+    setGameCode(code); setMySlot(0); setMyPart(part); setGameSlots(game.slots);
     setScreen("share");
   };
 
-  // Called when a joiner finishes their drawing
   const handleJoinerDone = async (drawing) => {
     setMpError("");
     let g;
@@ -2044,20 +2027,16 @@ export default function App() {
     catch(e) { setMpError("Couldn't save: " + e.message); return; }
     setGameSlots(g.slots);
     if (g.status === "complete") {
-      // Build ordered drawings by part
       const byPart = {};
       Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
       const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
-      const names = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
-      setDrawings(ordered);
-      setPlayers(names);
-      setScreen("reveal");
+      const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+      setDrawings(ordered); setPlayers(names); setScreen("reveal");
     } else {
       setScreen("share");
     }
   };
 
-  // Join an existing game via code
   const joinAsyncGame = async () => {
     const code = joinCode.trim().toUpperCase();
     if (!code || !myName.trim()) { setJoinError("Enter your name and the room code"); return; }
@@ -2067,32 +2046,20 @@ export default function App() {
     catch(e) { setJoinError("Couldn't reach the game: " + e.message); return; }
     if (!g) { setJoinError("Game not found — check the code"); return; }
     if (!g.slots) g.slots = {};
-    // If complete — show reveal
     if (g.status === "complete" || Object.keys(g.slots).length >= 3) {
       const byPart = {};
       Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
       const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
-      const names = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
-      setDrawings(ordered);
-      setPlayers(names);
-      setGameCode(code);
-      setGameSlots(g.slots);
-      setScreen("reveal");
-      return;
+      const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+      setDrawings(ordered); setPlayers(names); setGameCode(code); setGameSlots(g.slots);
+      setScreen("reveal"); return;
     }
-    // Check name not taken
     const takenNames = Object.values(g.slots).map(s => s.name);
-    if (takenNames.includes(myName.trim())) {
-      setJoinError("That name is taken — pick a different one"); return;
-    }
+    if (takenNames.includes(myName.trim())) { setJoinError("That name is taken — pick another"); return; }
     const part = pickRandomPart(g.slots);
     const slot = Object.keys(g.slots).length;
-    setGameCode(code);
-    setMySlot(slot);
-    setMyPart(part);
-    setGameSlots(g.slots);
-    setMode("multiplayer");
-    setCurrentSection(PART_SECTION[part]);
+    setGameCode(code); setMySlot(slot); setMyPart(part); setGameSlots(g.slots);
+    setMode("multiplayer"); setCurrentSection(PART_SECTION[part]);
     setScreen("async-drawing");
   };
 
@@ -2105,9 +2072,7 @@ export default function App() {
 
   useEffect(() => () => clearInterval(pollRef.current), []);
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // HOME
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── HOME ──────────────────────────────────────────────────────────────────────
   if (screen === "home") return (
     <div style={page}>
       <Fonts />
@@ -2122,13 +2087,12 @@ export default function App() {
           </p>
         </div>
         <div style={{ padding:"0 16px", display:"flex", flexDirection:"column", gap:12 }}>
-          {/* Primary CTA — async multiplayer */}
           <div style={{ background:"#fff", borderRadius:20, padding:"20px 20px 16px",
             boxShadow:"0 2px 12px rgba(192,57,43,0.10)", border:"1.5px solid #f5e8e8" }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700,
               color:"#3d1010", marginBottom:6 }}>Play with friends</div>
             <p style={{ fontFamily:"'Nunito',sans-serif", fontSize:13, color:"#b07070", margin:"0 0 14px" }}>
-              Draw your part, share the link. Friends draw theirs whenever — no need to be online at the same time.
+              Draw your part, share the link. Friends draw whenever — no need to be online at the same time.
             </p>
             <input placeholder="Your name..."
               value={myName} onChange={e => setMyName(e.target.value)}
@@ -2147,27 +2111,20 @@ export default function App() {
             </button>
           </div>
 
-          {/* Join a game */}
-          <button onClick={() => setScreen("join")}
-            style={bigBtn("#f2c4c4", "#3d1010")}>
+          <button onClick={() => setScreen("join")} style={bigBtn("#f2c4c4", "#3d1010")}>
             Join a Friend's Game
           </button>
 
-          {/* Divider */}
           <div style={{ display:"flex", alignItems:"center", gap:10, margin:"4px 0" }}>
             <div style={{ flex:1, height:1, background:"#eee" }} />
             <span style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#bbb" }}>or play on this phone</span>
             <div style={{ flex:1, height:1, background:"#eee" }} />
           </div>
 
-          {/* Pass and play */}
-          <button onClick={() => setScreen("lobby")}
-            style={{ ...bigBtn("#f8f0f0", "#b07070"), fontSize:14 }}>
+          <button onClick={() => setScreen("lobby")} style={{ ...bigBtn("#f8f0f0", "#b07070"), fontSize:14 }}>
             Pass &amp; Play (one phone)
           </button>
         </div>
-
-        {/* Storage status */}
         <div style={{ fontFamily:"monospace", fontSize:10,
           color: storageStatus.startsWith("ready · Firebase") ? "#27ae60" : "#b07070",
           textAlign:"center", padding:"16px 16px 8px" }}>
@@ -2177,111 +2134,51 @@ export default function App() {
     </div>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // LOBBY — pass & play name entry + option to create a room
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── LOBBY (pass-and-play name entry) ──────────────────────────────────────────
   if (screen === "lobby") return (
     <div style={page}>
       <Fonts />
       <div style={card}>
         <BackBtn onClick={() => setScreen("home")} />
         <h2 style={title}>Who's playing?</h2>
-
-        {/* MULTIPLAYER first — the headline mode */}
-        <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:8 }}>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700,
-            color:"#3d1010", marginBottom:2 }}>
-            Play with friends
-          </div>
-          <p style={{ ...sub, marginBottom:8, fontSize:13 }}>
-            Each player draws on their own phone, at the same time.
-          </p>
-          <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070",
-            fontWeight:700, textTransform:"uppercase", letterSpacing:1 }}>
-            Your name
-          </div>
-          <input placeholder="Your name..." value={myName} onChange={e=>setMyName(e.target.value)} style={input} />
-          <button
-            onClick={createRoom}
-            disabled={!myName.trim()}
-            style={bigBtn(!myName.trim() ? "#ddd" : "#8e44ad", !myName.trim() ? "#aaa" : "#fff")}
-          >
-            Create a Room
-          </button>
-          <div style={{ fontFamily:"monospace", fontSize:10, color: storageStatus.startsWith("ready") ? "#27ae60" : "#b07070",
-            textAlign:"center", marginTop:2 }}>
-            multiplayer: {storageStatus}
-          </div>
-          {mpError && (
-            <div style={{ background:"#fff0f0", border:"1px solid #f5c0bb", borderRadius:10,
-              padding:"10px 12px", fontFamily:"'Nunito',sans-serif", fontSize:12,
-              color:"#C0392B", textAlign:"center", marginTop:4 }}>
-              {mpError}
-            </div>
-          )}
-        </div>
-
-        {/* Divider */}
-        <div style={{ display:"flex", alignItems:"center", gap:10, margin:"22px 0 16px", width:"100%" }}>
-          <div style={{ flex:1, height:1, background:"#eee" }} />
-          <span style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#bbb" }}>or play alone</span>
-          <div style={{ flex:1, height:1, background:"#eee" }} />
-        </div>
-
-        {/* PASS-AND-PLAY second */}
-        <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:6 }}>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700,
-            color:"#3d1010", marginBottom:2 }}>
-            One phone, pass around
-          </div>
-          <p style={{ ...sub, marginBottom:6, fontSize:13 }}>
-            Enter 3 names and pass the phone between turns.
-          </p>
-          <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:8 }}>
-            {["draws the HEAD","draws the BODY","draws the LEGS"].map((label, i) => (
-              <div key={i}>
-                <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070", marginBottom:3, fontWeight:700, textTransform:"uppercase", letterSpacing:1 }}>
-                  Player {i+1} — {label}
-                </div>
-                <input
-                  placeholder="Name..."
-                  value={players[i]}
-                  onChange={e => { const p=[...players]; p[i]=e.target.value; setPlayers(p); }}
-                  style={input}
-                />
+        <p style={sub}>Enter 3 names and pass the phone between turns.</p>
+        <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:10, marginBottom:16 }}>
+          {["draws the HEAD","draws the BODY","draws the LEGS"].map((label, i) => (
+            <div key={i}>
+              <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070", marginBottom:3,
+                fontWeight:700, textTransform:"uppercase", letterSpacing:1 }}>
+                Player {i+1} — {label}
               </div>
-            ))}
-          </div>
-          <button
-            onClick={startPassPlay}
-            disabled={players.some(p=>!p.trim())}
-            style={bigBtn(players.some(p=>!p.trim()) ? "#ddd" : "#C0392B", players.some(p=>!p.trim()) ? "#aaa" : "#fff")}
-          >
-            Play on This Phone
-          </button>
+              <input placeholder="Name..." value={players[i]}
+                onChange={e => { const p=[...players]; p[i]=e.target.value; setPlayers(p); }}
+                style={input} />
+            </div>
+          ))}
         </div>
+        <button onClick={startPassPlay} disabled={players.some(p=>!p.trim())}
+          style={bigBtn(players.some(p=>!p.trim()) ? "#ddd" : "#C0392B", players.some(p=>!p.trim()) ? "#aaa" : "#fff")}>
+          Play on This Phone
+        </button>
       </div>
     </div>
   );
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // JOIN
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── JOIN ──────────────────────────────────────────────────────────────────────
   if (screen === "join") return (
     <div style={page}>
       <Fonts />
       <div style={card}>
         <BackBtn onClick={() => setScreen("home")} />
         <h2 style={title}>Join a Game</h2>
-        <p style={sub}>Enter your name and the code your friend shared with you.</p>
+        <p style={sub}>Enter your name and the code your friend shared.</p>
         <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:10 }}>
           <input placeholder="Your name..." value={myName} onChange={e=>setMyName(e.target.value)} style={input} />
           <input placeholder="Room code (e.g. XK72A)..." value={joinCode}
             onChange={e=>setJoinCode(e.target.value.toUpperCase())}
-            style={{ ...input, fontFamily:"'Playfair Display',serif", fontSize:22, textAlign:"center", letterSpacing:4 }}
-          />
+            style={{ ...input, fontFamily:"'Playfair Display',serif", fontSize:22, textAlign:"center", letterSpacing:4 }} />
           {joinError && <div style={{ color:"#C0392B", fontFamily:"'Nunito',sans-serif", fontSize:13, textAlign:"center" }}>{joinError}</div>}
-          <button onClick={joinAsyncGame} disabled={!myName.trim() || !joinCode.trim()} style={bigBtn(!myName.trim() || !joinCode.trim() ? "#ddd" : "#C0392B", !myName.trim() || !joinCode.trim() ? "#aaa" : "#fff")}>
+          <button onClick={joinAsyncGame} disabled={!myName.trim() || !joinCode.trim()}
+            style={bigBtn(!myName.trim() || !joinCode.trim() ? "#ddd" : "#C0392B", !myName.trim() || !joinCode.trim() ? "#aaa" : "#fff")}>
             Join &amp; Draw
           </button>
         </div>
@@ -2289,39 +2186,27 @@ export default function App() {
     </div>
   );
 
-  // ── ASYNC DRAWING — creator draws first, or joiner draws their assigned part ──
+  // ── ASYNC DRAWING ─────────────────────────────────────────────────────────────
   if (screen === "async-drawing") {
     const isCreator = mySlot === null || mySlot === undefined;
-    const part = isCreator
-      ? ["head","body","legs"][currentSection]
-      : myPart;
-    const partLabel = part?.toUpperCase() || "";
-    const section = SECTIONS[PART_SECTION[part] ?? currentSection];
-    const hint = PART_HINTS[part] || section?.hint || "";
+    const part = isCreator ? PARTS[currentSection] : myPart;
     const slotSection = PART_SECTION[part] ?? currentSection;
-
-    // Who else has drawn already?
+    const hint = PART_HINTS[part] || "";
     const otherSlots = Object.values(gameSlots || {});
-
     return (
       <div style={page}>
         <Fonts />
         <div style={{ ...card, maxWidth:460 }}>
-          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
-            width:"100%", marginBottom:8 }}>
-            <div>
-              <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#3d1010" }}>
-                You're drawing the <span style={{ color:"#C0392B" }}>{partLabel}</span>
-              </div>
-              <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070", marginTop:2 }}>
-                {hint}
-              </div>
+          <div style={{ alignSelf:"flex-start", marginBottom:8 }}>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#3d1010" }}>
+              You're drawing the <span style={{ color:"#C0392B" }}>{part?.toUpperCase()}</span>
+            </div>
+            <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070", marginTop:2 }}>
+              {hint}
             </div>
           </div>
-
-          {/* Show who else has drawn */}
           {otherSlots.length > 0 && (
-            <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:"wrap" }}>
+            <div style={{ display:"flex", gap:8, marginBottom:10, flexWrap:"wrap", width:"100%" }}>
               {otherSlots.map((s, i) => (
                 <div key={i} style={{ fontFamily:"'Nunito',sans-serif", fontSize:12,
                   background:"#f5e8e8", borderRadius:20, padding:"3px 10px", color:"#C0392B", fontWeight:600 }}>
@@ -2330,7 +2215,6 @@ export default function App() {
               ))}
             </div>
           )}
-
           <DrawingCanvas
             sectionIndex={slotSection}
             onDone={isCreator ? handleCreatorDone : handleJoinerDone}
@@ -2338,7 +2222,6 @@ export default function App() {
             peekHeight={null}
             anchors={null}
           />
-
           {mpError && (
             <div style={{ color:"#C0392B", fontFamily:"'Nunito',sans-serif",
               fontSize:13, textAlign:"center", marginTop:8 }}>{mpError}</div>
@@ -2348,14 +2231,14 @@ export default function App() {
     );
   }
 
-  // ── SHARE — drawing saved, invite next player ──
+  // ── SHARE ─────────────────────────────────────────────────────────────────────
   if (screen === "share") {
     const doneSlots = Object.values(gameSlots || {});
-    const remaining = 3 - doneSlots.length;
     const drawnParts = doneSlots.map(s => s.part);
     const remainingParts = ["head","body","legs"].filter(p => !drawnParts.includes(p));
+    const remaining = remainingParts.length;
 
-    const buildShareText = () => {
+    const shareInvite = async () => {
       let url = "";
       try {
         const u = new URL(window.location.href);
@@ -2363,24 +2246,18 @@ export default function App() {
         url = u.toString();
       } catch(e) {}
       const partList = doneSlots.map(s => `${s.name} drew the ${s.part}`).join(", ");
-      return url
-        ? `Help finish our Folded Creature! ${partList}. You need to draw: ${remainingParts.join(" or ")}. Join here: ${url}`
+      const text = url
+        ? `Help finish our Folded Creature! ${partList}. You draw: ${remainingParts.join(" or ")}. Join: ${url}`
         : `Help finish our Folded Creature! Code: ${gameCode}. You draw: ${remainingParts.join(" or ")}`;
-    };
-
-    const shareInvite = async () => {
-      const text = buildShareText();
       if (navigator.share) {
         try { await navigator.share({ title:"Folded Creature", text }); return; }
         catch(e) { if (e.name === "AbortError") return; }
       }
       try {
         await navigator.clipboard.writeText(text);
-        setCopyFeedback("✓ Invite copied — paste it to your friend!");
+        setCopyFeedback("✓ Invite copied!");
         setTimeout(() => setCopyFeedback(""), 3000);
-      } catch(e) {
-        window.prompt("Copy this invite:", text);
-      }
+      } catch(e) { window.prompt("Copy this invite:", text); }
     };
 
     return (
@@ -2391,13 +2268,11 @@ export default function App() {
             <div style={{ fontSize:48 }}>✓</div>
             <h2 style={{ ...title, marginBottom:6 }}>Your part is saved!</h2>
             <p style={{ ...sub, marginBottom:0 }}>
-              {remaining === 0
-                ? "All parts are done — check the reveal!"
-                : `${remaining} more player${remaining > 1 ? "s" : ""} still need${remaining === 1 ? "s" : ""} to draw.`}
+              {remaining === 0 ? "All parts done — check the reveal!" :
+                `${remaining} more player${remaining > 1 ? "s" : ""} still need${remaining === 1 ? "s" : ""} to draw.`}
             </p>
           </div>
 
-          {/* Who's drawn */}
           <div style={{ width:"100%", marginBottom:16 }}>
             {["head","body","legs"].map(part => {
               const slot = doneSlots.find(s => s.part === part);
@@ -2425,54 +2300,42 @@ export default function App() {
             })}
           </div>
 
-          {/* Room code — tap to copy */}
-          <button
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(gameCode);
-                setCopyFeedback("✓ Code copied!");
-                setTimeout(() => setCopyFeedback(""), 1800);
-              } catch(e) {}
-            }}
-            style={{ background:"#fdf0f0", border:"2px dashed #e8b4b4", borderRadius:16,
-              padding:"14px 24px", width:"100%", boxSizing:"border-box",
-              cursor:"pointer", marginBottom:10 }}>
+          <button onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(gameCode);
+              setCopyFeedback("✓ Code copied!");
+              setTimeout(() => setCopyFeedback(""), 1800);
+            } catch(e) {}
+          }} style={{ background:"#fdf0f0", border:"2px dashed #e8b4b4", borderRadius:16,
+            padding:"14px 24px", width:"100%", boxSizing:"border-box", cursor:"pointer", marginBottom:10 }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:900,
               color:"#C0392B", letterSpacing:6 }}>{gameCode}</div>
             <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070", marginTop:2 }}>
-              {copyFeedback || "Tap to copy code"}
+              {copyFeedback && copyFeedback.includes("Code") ? copyFeedback : "Tap to copy code"}
             </div>
           </button>
 
           {remaining > 0 && (
-            <button onClick={shareInvite} style={bigBtn("#8e44ad")}>
-              Share Invite Link
-            </button>
+            <button onClick={shareInvite} style={bigBtn("#8e44ad")}>Share Invite Link</button>
           )}
-
           {copyFeedback && copyFeedback.includes("Invite") && (
             <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#27ae60",
               textAlign:"center", marginTop:8, fontWeight:600 }}>{copyFeedback}</div>
           )}
 
           {remaining === 0 && (
-            <button
-              onClick={async () => {
-                // Load game and show reveal
-                try {
-                  const g = await loadGame(gameCode);
-                  if (g?.slots) {
-                    const byPart = {};
-                    Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
-                    const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
-                    const names = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
-                    setDrawings(ordered);
-                    setPlayers(names);
-                    setScreen("reveal");
-                  }
-                } catch(e) { setMpError("Couldn't load reveal: " + e.message); }
-              }}
-              style={bigBtn("#C0392B")}>
+            <button onClick={async () => {
+              try {
+                const g = await loadGame(gameCode);
+                if (g?.slots) {
+                  const byPart = {};
+                  Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
+                  const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
+                  const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+                  setDrawings(ordered); setPlayers(names); setScreen("reveal");
+                }
+              } catch(e) { setMpError("Couldn't load: " + e.message); }
+            }} style={bigBtn("#C0392B")}>
               See the Creature! 🎨
             </button>
           )}
@@ -2481,7 +2344,6 @@ export default function App() {
             <div style={{ color:"#C0392B", fontFamily:"'Nunito',sans-serif",
               fontSize:13, textAlign:"center", marginTop:8 }}>{mpError}</div>
           )}
-
           <button onClick={reset} style={{ marginTop:12, background:"none", border:"none",
             fontFamily:"'Nunito',sans-serif", fontSize:13, color:"#b07070",
             cursor:"pointer", textDecoration:"underline" }}>
@@ -2492,185 +2354,21 @@ export default function App() {
     );
   }
 
-    <div style={page}>
-      <Fonts />
-      <div style={card}>
-        <h2 style={title}>Room Code</h2>
-        {/* Big code display — tap to copy */}
-        <button
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(gameCode);
-              setCopyFeedback("✓ Copied!");
-              setTimeout(() => setCopyFeedback(""), 1800);
-            } catch(e) {
-              setCopyFeedback("Couldn't copy — try Share instead");
-              setTimeout(() => setCopyFeedback(""), 2400);
-            }
-          }}
-          style={{ background:"#fdf0f0", border:"2px dashed #e8b4b4", borderRadius:16,
-            padding:"20px 32px", margin:"8px 0 8px", textAlign:"center", width:"100%",
-            boxSizing:"border-box", cursor:"pointer", display:"block" }}
-        >
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:44, fontWeight:900,
-            color:"#C0392B", letterSpacing:6 }}>{gameCode}</div>
-          <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070", marginTop:4 }}>
-            {copyFeedback || "Tap to copy"}
-          </div>
-        </button>
-
-        {/* Share invite button */}
-        <button
-          onClick={async () => {
-            // Build invite text with deep link to current page + ?code=
-            let url = "";
-            try {
-              const u = new URL(window.location.href);
-              u.searchParams.set("code", gameCode);
-              url = u.toString();
-            } catch(e) {}
-            const text = url
-              ? `Join my Folded Creature game! Tap to join: ${url}`
-              : `Join my Folded Creature game! Open the app and use code: ${gameCode}`;
-
-            // Try native share first
-            let shared = false;
-            if (typeof navigator !== "undefined" && navigator.share) {
-              try {
-                await navigator.share({ title: "Folded Creature invite", text });
-                shared = true;
-                setCopyFeedback("✓ Sent");
-                setTimeout(() => setCopyFeedback(""), 1800);
-              } catch(e) {
-                if (e.name === "AbortError") return; // user cancelled
-                console.warn("Share failed, falling back to clipboard:", e.message);
-                // Fall through to clipboard
-              }
-            }
-
-            // Clipboard fallback (also runs if share isn't available or failed)
-            if (!shared) {
-              try {
-                await navigator.clipboard.writeText(text);
-                setCopyFeedback("✓ Invite copied — paste it to your friend");
-                setTimeout(() => setCopyFeedback(""), 3000);
-              } catch(e) {
-                // Last-ditch fallback: show the text in an alert so they can copy manually
-                try { window.prompt("Copy this invite to send to your friends:", text); }
-                catch(e2) { setCopyFeedback("Couldn't share — code is " + gameCode); setTimeout(() => setCopyFeedback(""), 4000); }
-              }
-            }
-          }}
-          style={{ ...bigBtn("#8e44ad"), marginBottom: copyFeedback ? 6 : 14 }}
-        >
-          Share Invite
-        </button>
-        {copyFeedback && (
-          <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#27ae60",
-            textAlign:"center", marginBottom:14, fontWeight:600 }}>
-            {copyFeedback}
-          </div>
-        )}
-
-        {/* Players joined */}
-        <div style={{ width:"100%", marginBottom:16 }}>
-          {["Head","Body","Legs"].map((part, i) => {
-            // In concurrent mode: slot is "drawing" if game has started, slot has player, but no drawing yet
-            const isDrawing = mode === "multiplayer" && lobbyPlayers[i] && lobbyPlayers.length === 3 && drawings.length > 0 && !slotDone[i];
-            return (
-              <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 0",
-                borderBottom: i<2 ? "1px solid #f5e8e8" : "none" }}>
-                <div style={{ width:32, height:32, borderRadius:"50%",
-                  background: lobbyPlayers[i] ? "#C0392B" : "#f5e8e8",
-                  display:"flex", alignItems:"center", justifyContent:"center",
-                  fontFamily:"'Nunito',sans-serif", fontSize:13, color: lobbyPlayers[i] ? "#fff" : "#ddd", fontWeight:700 }}>
-                  {i+1}
-                </div>
-                <div style={{ flex:1 }}>
-                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:15, fontWeight:700, color: lobbyPlayers[i] ? "#3d1010" : "#ccc" }}>
-                    {lobbyPlayers[i] || "Waiting..."}
-                    {mySlot === i && <span style={{ color:"#8e44ad", fontWeight:600, marginLeft:6 }}>(you)</span>}
-                  </div>
-                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color: isDrawing ? "#8e44ad" : "#b07070", fontWeight: isDrawing ? 700 : 400 }}>
-                    {isDrawing ? `✏️ drawing the ${part.toLowerCase()}...` : `draws the ${part}`}
-                  </div>
-                </div>
-                {slotDone[i] && <div style={{ color:"#27ae60", fontSize:18 }}>✓</div>}
-                {isDrawing && <div style={{ color:"#8e44ad", fontSize:13, fontWeight:700 }}>...</div>}
-              </div>
-            );
-          })}
-        </div>
-
-        {/* Status messages — anyone can start once 3 are in */}
-        {lobbyPlayers.length === 3 && drawings.length === 0 && !slotDone[0] && !slotDone[1] && !slotDone[2] && (
-          <div style={{ width:"100%", display:"flex", flexDirection:"column", gap:6 }}>
-            <button onClick={startMultiplayer} style={bigBtn("#C0392B")}>Start Game!</button>
-            {mySlot !== 0 && (
-              <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070", textAlign:"center" }}>
-                Anyone can start — host can be away
-              </div>
-            )}
-          </div>
-        )}
-        {lobbyPlayers.length < 3 && (
-          <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:13, color:"#b07070", textAlign:"center" }}>
-            Waiting for {3-lobbyPlayers.length} more player{3-lobbyPlayers.length!==1?"s":""}...
-          </div>
-        )}
-        {drawings.length > 0 && drawings.length < 3 && (
-          <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:13, color:"#8e44ad", textAlign:"center", fontWeight:600 }}>
-            {drawings.length} of 3 finished — waiting for the rest...
-          </div>
-        )}
-
-        {mpError && (
-          <div style={{ background:"#fff0f0", border:"1px solid #f5c0bb", borderRadius:10,
-            padding:"10px 12px", fontFamily:"'Nunito',sans-serif", fontSize:12,
-            color:"#C0392B", textAlign:"center", marginTop:10, width:"100%", boxSizing:"border-box" }}>
-            {mpError}
-          </div>
-        )}
-
-        {/* Leave button always available — lets people get unstuck */}
-        <button
-          onClick={() => {
-            if (confirm("Leave this room? You can't rejoin if you leave.")) {
-              setScreen("home"); setPlayers(["","",""]); setMyName(""); setMySlot(null);
-              setGameCode(""); setLobbyPlayers([]); setDrawings([]); setMpError("");
-              if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
-            }
-          }}
-          style={{ marginTop:12, background:"none", border:"none",
-            fontFamily:"'Nunito',sans-serif", fontSize:13, color:"#b07070", cursor:"pointer",
-            textDecoration:"underline" }}
-        >
-          Leave room
-        </button>
-      </div>
-    </div>
-  );
-
-  // ─────────────────────────────────────────────────────────────────────────────
-  // PLAYING (pass & play only)
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── PLAYING (pass-and-play only) ──────────────────────────────────────────────
   if (screen === "playing") {
     const section     = SECTIONS[currentSection];
     const prevDrawing = drawings[currentSection - 1];
     const playerName  = players[currentSection];
-
     return (
       <div style={page}>
         <Fonts />
         <div style={{ ...card, maxWidth:460 }}>
-          {/* Progress bar */}
           <div style={{ display:"flex", gap:6, marginBottom:12, width:"100%" }}>
             {SECTIONS.map((_,i) => (
               <div key={i} style={{ flex:1, height:6, borderRadius:99,
                 background: i<=currentSection ? "#C0392B" : "#f5e8e8", transition:"background 0.3s" }} />
             ))}
           </div>
-
           <div style={{ alignSelf:"flex-start", marginBottom:10 }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:24, fontWeight:700, color:"#3d1010" }}>
               {playerName}'s turn
@@ -2679,7 +2377,6 @@ export default function App() {
               Draw the {section.part}
             </div>
           </div>
-
           <DrawingCanvas
             sectionIndex={currentSection}
             onDone={handleSectionDone}
@@ -2692,9 +2389,7 @@ export default function App() {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // HANDOFF (pass & play only)
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── HANDOFF ───────────────────────────────────────────────────────────────────
   if (screen === "handoff") {
     const next    = players[currentSection + 1];
     const section = SECTIONS[currentSection + 1];
@@ -2723,11 +2418,8 @@ export default function App() {
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────────
-  // REVEAL
-  // ─────────────────────────────────────────────────────────────────────────────
+  // ── REVEAL ────────────────────────────────────────────────────────────────────
   if (screen === "reveal") {
-    const names = mode === "multiplayer" ? lobbyPlayers : players;
     return (
       <div style={{ ...page, alignItems:"center", padding:"12px" }}>
         <Fonts />
@@ -2736,12 +2428,10 @@ export default function App() {
             Ta-Daa!
           </div>
           <p style={{ fontFamily:"'Nunito',sans-serif", color:"#b07070", fontSize:13, margin:0, textAlign:"center" }}>
-            {names.filter(Boolean).join(", ")} made a creature together
+            {players.filter(Boolean).join(", ")} made a creature together
           </p>
-          <RevealCanvas sections={drawings} players={names} />
-          <button onClick={reset} style={bigBtn("#C0392B")}>
-            Play Again
-          </button>
+          <RevealCanvas sections={drawings} players={players} />
+          <button onClick={reset} style={bigBtn("#C0392B")}>Play Again</button>
         </div>
       </div>
     );
@@ -2750,7 +2440,6 @@ export default function App() {
   return null;
 }
 
-// ─── Shared UI atoms ──────────────────────────────────────────────────────────
 function ModeCard({ icon, label, sub }) {
   return (
     <div style={{ flex:1, background:"#fff", borderRadius:20, padding:"16px 12px", textAlign:"center",
