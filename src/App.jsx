@@ -165,6 +165,7 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
   const [brushSize, setBrushSize] = useState(5);
   const [tool, setTool]         = useState("pen");
   const [zoom, setZoom]         = useState(false);
+  const [undoStack, setUndoStack] = useState([]); // array of dataURLs
   const toolRef      = useRef(tool);
   const colorRef     = useRef(color);
   const brushRef     = useRef(brushSize);
@@ -176,10 +177,6 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
   useEffect(() => { colorRef.current = color;     }, [color]);
   useEffect(() => { brushRef.current = brushSize; }, [brushSize]);
   useEffect(() => { zoomRef.current  = zoom;      }, [zoom]);
-
-  useEffect(() => { toolRef.current  = tool;      }, [tool]);
-  useEffect(() => { colorRef.current = color;     }, [color]);
-  useEffect(() => { brushRef.current = brushSize; }, [brushSize]);
 
   const drawPeek = useCallback((ctx) => {
     if (!peekImageData) return;
@@ -243,20 +240,26 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
       const src = e.touches ? e.touches[0] : e;
       return { x: (src.clientX - r.left) * sx, y: (src.clientY - r.top) * sy };
     };
+    const saveSnapshot = () => {
+      const canvas = canvasRef.current;
+      if (!canvas) return;
+      const snap = canvas.toDataURL();
+      setUndoStack(prev => [...prev.slice(-19), snap]); // keep last 20 states
+    };
+
     const onStart = (e) => {
-      if (zoomRef.current) return; // zoom mode — let touch scroll
+      if (zoomRef.current) return;
       e.preventDefault();
       const pos = getPos(e);
       const ctx = canvas.getContext("2d");
-      // Bucket fill: flood from the tap point, stopping at any ink boundary.
+      saveSnapshot(); // save before each stroke
       if (toolRef.current === "bucket") {
         try { floodFillAt(ctx, Math.round(pos.x), Math.round(pos.y), colorRef.current); }
         catch(err) { console.warn("Flood fill failed:", err.message); }
-        return; // don't enter drawing mode
+        return;
       }
       isDrawingRef.current = true;
       lastPos.current = pos;
-      // Draw a dot on tap so a quick tap (without dragging) still leaves a mark.
       const size = toolRef.current === "eraser" ? brushRef.current * 5 : brushRef.current;
       ctx.beginPath();
       ctx.arc(pos.x, pos.y, size / 2, 0, Math.PI * 2);
@@ -297,8 +300,25 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
     onDone({ imageData: c2.toDataURL(), croppedHeight: saveH });
   };
 
+  const undo = () => {
+    if (undoStack.length === 0) return;
+    const prev = undoStack[undoStack.length - 1];
+    setUndoStack(s => s.slice(0, -1));
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    const img = new Image();
+    img.onload = () => {
+      ctx.clearRect(0, 0, CANVAS_W, CANVAS_H);
+      ctx.drawImage(img, 0, 0);
+    };
+    img.src = prev;
+  };
+
   const clearCanvas = () => {
-    const ctx = canvasRef.current.getContext("2d");
+    // Save current state before clearing so clear is undoable
+    const canvas = canvasRef.current;
+    setUndoStack(prev => [...prev.slice(-19), canvas.toDataURL()]);
+    const ctx = canvas.getContext("2d");
     ctx.fillStyle = "#fff8f8"; ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
     drawPeek(ctx);
   };
@@ -313,19 +333,29 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
         {section.hint}
       </div>
 
-      {/* Canvas — zoom wraps it in a scrollable container when active */}
+      {/* Canvas wrapper — fixed height when zoomed so page doesn't scroll */}
       <div style={{
-        width:"100%", borderRadius: zoom ? 0 : 16,
-        overflow: zoom ? "auto" : "hidden",
-        boxShadow:"0 4px 24px #C0392B22", border:"2px solid #e8c8c8",
+        width:"100%",
+        position: zoom ? "relative" : "relative",
+        borderRadius: zoom ? 8 : 16,
+        overflow: zoom ? "scroll" : "hidden",
+        boxShadow:"0 4px 24px #C0392B22",
+        border:"2px solid #e8c8c8",
+        // Fixed height when zoomed so only canvas scrolls, not the page
+        height: zoom ? Math.min(CANVAS_H, 340) + "px" : undefined,
+        // Prevent touch events from bubbling to page scroll
         touchAction: zoom ? "pan-x pan-y" : "none",
-        WebkitOverflowScrolling:"touch",
-        maxHeight: zoom ? "60vh" : undefined,
-      }}>
+        WebkitOverflowScrolling: "touch",
+        overscrollBehavior: "contain",
+      }}
+        onTouchStart={zoom ? e => e.stopPropagation() : undefined}
+        onTouchMove={zoom ? e => e.stopPropagation() : undefined}
+      >
         <canvas ref={canvasRef} width={CANVAS_W} height={CANVAS_H} style={{
           display:"block",
           width: zoom ? CANVAS_W * 2 + "px" : "100%",
-          height: zoom ? CANVAS_H * 2 + "px" : undefined,
+          height: zoom ? CANVAS_H * 2 + "px" : "auto",
+          touchAction: zoom ? "pan-x pan-y" : "none",
         }} />
         {peekImageData && !zoom && (
           <div style={{ position:"absolute", top: PEEK_H + 2, left:8, pointerEvents:"none",
@@ -339,7 +369,7 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
         <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#8e44ad",
           textAlign:"center", background:"#f5eeff", borderRadius:8, padding:"5px 10px",
           width:"100%", boxSizing:"border-box" }}>
-          Zoom mode — scroll to navigate · tap 🔍 again to draw
+          Scroll to navigate · tap 🔍 to go back to drawing
         </div>
       )}
 
@@ -401,6 +431,12 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
             background: brushSize===s && tool!=="eraser" ? "#C0392B" : "#e0d0d0",
           }} />
         ))}
+        <button onClick={undo} disabled={undoStack.length === 0} style={{
+          padding:"3px 12px", borderRadius:20, border:"2px solid #eee",
+          background:"#fff", cursor: undoStack.length === 0 ? "default" : "pointer",
+          fontSize:12, fontFamily:"'Nunito',sans-serif",
+          color: undoStack.length === 0 ? "#ddd" : "#8e44ad",
+        }}>↩ Undo</button>
         <button onClick={clearCanvas} style={{
           padding:"3px 12px", borderRadius:20, border:"2px solid #eee",
           background:"#fff", cursor:"pointer", fontSize:12,
@@ -1937,6 +1973,51 @@ export default function App() {
   const [copyFeedback,   setCopyFeedback]  = useState("");
   const [storageStatus,  setStorageStatus] = useState("checking...");
   const pollRef = useRef(null);
+  const [activeGames, setActiveGames] = useState([]); // games in progress stored locally
+
+  // Load active games from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("fc_active_games") || "[]");
+      setActiveGames(stored.filter(g => g.code && g.myName));
+    } catch(e) {}
+  }, []);
+
+  // Save a game to active games list
+  const saveActiveGame = (code, name, part) => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("fc_active_games") || "[]");
+      const filtered = stored.filter(g => g.code !== code);
+      const updated = [{ code, myName: name, myPart: part, ts: Date.now() }, ...filtered].slice(0, 5);
+      localStorage.setItem("fc_active_games", JSON.stringify(updated));
+      setActiveGames(updated);
+    } catch(e) {}
+  };
+
+  // Remove a game from active list (completed or abandoned)
+  const removeActiveGame = (code) => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("fc_active_games") || "[]");
+      const updated = stored.filter(g => g.code !== code);
+      localStorage.setItem("fc_active_games", JSON.stringify(updated));
+      setActiveGames(updated);
+    } catch(e) {}
+  };
+
+  // Poll share screen for updates when waiting for others
+  const startSharePolling = (code) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const g = await loadGame(code);
+        if (!g?.slots) return;
+        setGameSlots(g.slots);
+        if (g.status === "complete" || Object.keys(g.slots).length >= 3) {
+          clearInterval(pollRef.current);
+        }
+      } catch(e) {}
+    }, 5000); // poll every 5 seconds on share screen
+  };
 
   const PARTS = ["head", "body", "legs"];
   const PART_SECTION = { head: 0, body: 1, legs: 2 };
@@ -2010,6 +2091,8 @@ export default function App() {
     try { await storeGame(code, game); }
     catch(e) { setMpError("Couldn't save: " + e.message); return; }
     setGameCode(code); setMySlot(0); setMyPart(part); setGameSlots(game.slots);
+    saveActiveGame(code, myName, part);
+    startSharePolling(code);
     setScreen("share");
   };
 
@@ -2031,8 +2114,11 @@ export default function App() {
       Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
       const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
       const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+      removeActiveGame(gameCode);
       setDrawings(ordered); setPlayers(names); setScreen("reveal");
     } else {
+      saveActiveGame(gameCode, myName, myPart);
+      startSharePolling(gameCode);
       setScreen("share");
     }
   };
@@ -2065,6 +2151,7 @@ export default function App() {
 
   const reset = () => {
     clearInterval(pollRef.current);
+    if (gameCode) removeActiveGame(gameCode);
     setScreen("home"); setPlayers(["","",""]); setMyName(""); setMySlot(null);
     setMyPart(null); setGameCode(""); setJoinCode(""); setJoinError("");
     setCurrentSection(0); setDrawings([]); setGameSlots({}); setMpError("");
@@ -2130,6 +2217,56 @@ export default function App() {
           textAlign:"center", padding:"16px 16px 8px" }}>
           {storageStatus}
         </div>
+
+        {/* Games in progress */}
+        {activeGames.length > 0 && (
+          <div style={{ padding:"0 16px 16px" }}>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700,
+              color:"#3d1010", marginBottom:8 }}>Games in progress</div>
+            {activeGames.map(g => (
+              <button key={g.code} onClick={async () => {
+                // Load game and resume
+                try {
+                  const game = await loadGame(g.code);
+                  if (!game) { removeActiveGame(g.code); return; }
+                  setGameCode(g.code);
+                  setMyName(g.myName);
+                  setMyPart(g.myPart);
+                  setGameSlots(game.slots || {});
+                  if (game.status === "complete" || Object.keys(game.slots || {}).length >= 3) {
+                    const byPart = {};
+                    Object.values(game.slots || {}).forEach(s => { byPart[s.part] = s; });
+                    const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
+                    const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+                    removeActiveGame(g.code);
+                    setDrawings(ordered); setPlayers(names); setScreen("reveal");
+                  } else {
+                    startSharePolling(g.code);
+                    setScreen("share");
+                  }
+                } catch(e) { setMpError("Couldn't load game: " + e.message); }
+              }} style={{ width:"100%", background:"#fff", border:"1.5px solid #f2c4c4",
+                borderRadius:14, padding:"12px 16px", marginBottom:8, cursor:"pointer",
+                display:"flex", alignItems:"center", justifyContent:"space-between",
+                boxSizing:"border-box" }}>
+                <div>
+                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:14, fontWeight:700,
+                    color:"#3d1010", textAlign:"left" }}>
+                    Code: {g.code}
+                  </div>
+                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070",
+                    textAlign:"left" }}>
+                    You drew the {g.myPart} as {g.myName}
+                  </div>
+                </div>
+                <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#C0392B",
+                  fontWeight:700 }}>
+                  Check →
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -2332,6 +2469,7 @@ export default function App() {
                   Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
                   const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
                   const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+                  removeActiveGame(gameCode);
                   setDrawings(ordered); setPlayers(names); setScreen("reveal");
                 }
               } catch(e) { setMpError("Couldn't load: " + e.message); }
