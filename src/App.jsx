@@ -159,7 +159,7 @@ function floodFillAt(ctx, startX, startY, hexColour) {
   ctx.putImageData(img, 0, 0);
 }
 
-function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchors }) {
+function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchors, doneLabel }) {
   const canvasRef = useRef(null);
   const [color, setColor]       = useState("#1a1a1a");
   const [brushSize, setBrushSize] = useState(5);
@@ -450,7 +450,7 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
         fontFamily:"'Playfair Display',serif", fontSize:18, fontWeight:700,
         cursor:"pointer", boxShadow:"0 4px 16px #C0392B44", letterSpacing:0.5,
       }}>
-        Done — Pass it on
+        {doneLabel || "Done — Pass it on"}
       </button>
     </div>
   );
@@ -2077,7 +2077,9 @@ export default function App() {
     return available[Math.floor(Math.random() * available.length)];
   };
 
-  const handleCreatorDone = async (drawing) => {
+  // Creator taps "Start Drawing" — create the game code first, show invite screen
+  const startCreatorGame = async () => {
+    if (!myName.trim()) return;
     setMpError("");
     const code = makeCode();
     const part = PARTS[Math.floor(Math.random() * 3)];
@@ -2085,15 +2087,47 @@ export default function App() {
     const game = {
       status: "drawing",
       anchors,
-      slots: { 0: { name: myName, part, drawing } },
+      slots: {},   // empty — creator hasn't drawn yet
       createdAt: Date.now(),
     };
     try { await storeGame(code, game); }
-    catch(e) { setMpError("Couldn't save: " + e.message); return; }
-    setGameCode(code); setMySlot(0); setMyPart(part); setGameSlots(game.slots);
+    catch(e) { setMpError("Couldn't create game: " + e.message); return; }
+    setGameCode(code);
+    setMySlot(0);
+    setMyPart(part);
+    setGameSlots({});
+    setMode("multiplayer");
+    setCurrentSection(PART_SECTION[part]);
     saveActiveGame(code, myName, part);
     startSharePolling(code);
-    setScreen("share");
+    setScreen("pre-draw-share"); // new screen — share first, then draw
+  };
+
+  // Called when creator finishes drawing (after sharing)
+  const handleCreatorDone = async (drawing) => {
+    setMpError("");
+    let g;
+    try { g = await loadGame(gameCode); }
+    catch(e) { setMpError("Couldn't save: " + e.message); return; }
+    if (!g) { setMpError("Game not found"); return; }
+    if (!g.slots) g.slots = {};
+    g.slots[0] = { name: myName, part: myPart, drawing };
+    const slotCount = Object.keys(g.slots).length;
+    if (slotCount >= 3) g.status = "complete";
+    try { await storeGame(gameCode, g); }
+    catch(e) { setMpError("Couldn't save: " + e.message); return; }
+    setGameSlots(g.slots);
+    if (g.status === "complete") {
+      const byPart = {};
+      Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
+      const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
+      const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+      removeActiveGame(gameCode);
+      setDrawings(ordered); setPlayers(names); setScreen("reveal");
+    } else {
+      startSharePolling(gameCode);
+      setScreen("share");
+    }
   };
 
   const handleJoinerDone = async (drawing) => {
@@ -2167,10 +2201,10 @@ export default function App() {
         <div style={{ padding:"48px 24px 32px", textAlign:"center" }}>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:42, fontWeight:900,
             color:"#3d1010", letterSpacing:-1, lineHeight:1.1 }}>
-            Folded<br/>Creature
+            Draw.<br/>Share.<br/>Surprise.
           </div>
           <p style={{ fontFamily:"'Nunito',sans-serif", color:"#b07070", fontSize:14, marginTop:12 }}>
-            Draw. Share. Surprise.
+            A Folded Creature creation
           </p>
         </div>
         <div style={{ padding:"0 16px", display:"flex", flexDirection:"column", gap:12 }}>
@@ -2185,12 +2219,7 @@ export default function App() {
               value={myName} onChange={e => setMyName(e.target.value)}
               style={{ ...input, marginBottom:10 }} />
             <button
-              onClick={() => {
-                if (!myName.trim()) return;
-                setMode("multiplayer");
-                setCurrentSection(Math.floor(Math.random() * 3));
-                setScreen("async-drawing");
-              }}
+              onClick={startCreatorGame}
               disabled={!myName.trim()}
               style={bigBtn(!myName.trim() ? "#ddd" : "#C0392B", !myName.trim() ? "#aaa" : "#fff")}
             >
@@ -2323,7 +2352,101 @@ export default function App() {
     </div>
   );
 
-  // ── ASYNC DRAWING ─────────────────────────────────────────────────────────────
+  // ── PRE-DRAW SHARE — creator shares invite before drawing their own part ──────
+  if (screen === "pre-draw-share") {
+    const shareInvite = async () => {
+      let url = "";
+      try {
+        const u = new URL(window.location.href);
+        u.searchParams.set("code", gameCode);
+        url = u.toString();
+      } catch(e) {}
+      const text = url
+        ? `Join my Folded Creature game! We each draw one secret part. Join here: ${url}`
+        : `Join my Folded Creature game! Code: ${gameCode}`;
+      if (navigator.share) {
+        try { await navigator.share({ title:"Folded Creature", text }); return; }
+        catch(e) { if (e.name === "AbortError") return; }
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopyFeedback("✓ Invite copied!");
+        setTimeout(() => setCopyFeedback(""), 3000);
+      } catch(e) { window.prompt("Copy this invite:", text); }
+    };
+
+    return (
+      <div style={page}>
+        <Fonts />
+        <div style={card}>
+          <div style={{ textAlign:"center", marginBottom:16 }}>
+            <div style={{ fontSize:48 }}>🎨</div>
+            <h2 style={{ ...title, marginBottom:6 }}>Invite your friends first!</h2>
+            <p style={{ ...sub, marginBottom:0 }}>
+              Share the code with 2 friends. They can start drawing while you draw yours — everyone reveals together.
+            </p>
+          </div>
+
+          {/* Room code */}
+          <button onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(gameCode);
+              setCopyFeedback("✓ Code copied!");
+              setTimeout(() => setCopyFeedback(""), 1800);
+            } catch(e) {}
+          }} style={{ background:"#fdf0f0", border:"2px dashed #e8b4b4", borderRadius:16,
+            padding:"14px 24px", width:"100%", boxSizing:"border-box", cursor:"pointer", marginBottom:10 }}>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:900,
+              color:"#C0392B", letterSpacing:6 }}>{gameCode}</div>
+            <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070", marginTop:2 }}>
+              {copyFeedback && copyFeedback.includes("Code") ? copyFeedback : "Tap to copy code"}
+            </div>
+          </button>
+
+          <button onClick={shareInvite} style={{ ...bigBtn("#8e44ad"), marginBottom:10 }}>
+            Share Invite Link
+          </button>
+          {copyFeedback && copyFeedback.includes("Invite") && (
+            <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#27ae60",
+              textAlign:"center", marginBottom:10, fontWeight:600 }}>{copyFeedback}</div>
+          )}
+
+          {/* Who's drawing what */}
+          <div style={{ width:"100%", marginBottom:16 }}>
+            <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070",
+              textAlign:"center", marginBottom:8 }}>You'll be assigned a random part to draw</div>
+            {["head","body","legs"].map(part => (
+              <div key={part} style={{ display:"flex", alignItems:"center", gap:10,
+                padding:"8px 0", borderBottom:"1px solid #f5e8e8" }}>
+                <div style={{ width:32, height:32, borderRadius:"50%", background:"#f5e8e8",
+                  display:"flex", alignItems:"center", justifyContent:"center",
+                  fontFamily:"'Nunito',sans-serif", fontSize:13, color:"#ddd", fontWeight:700 }}>?</div>
+                <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:14, color:"#ccc" }}>
+                  draws the {part}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <button onClick={() => setScreen("async-drawing")} style={bigBtn("#C0392B")}>
+            I'm ready — start drawing my part!
+          </button>
+
+          {mpError && (
+            <div style={{ color:"#C0392B", fontFamily:"'Nunito',sans-serif",
+              fontSize:13, textAlign:"center", marginTop:8 }}>{mpError}</div>
+          )}
+          <button onClick={reset} style={{ marginTop:12, background:"none", border:"none",
+            fontFamily:"'Nunito',sans-serif", fontSize:13, color:"#b07070",
+            cursor:"pointer", textDecoration:"underline" }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+
   if (screen === "async-drawing") {
     const isCreator = mySlot === null || mySlot === undefined;
     const part = isCreator ? PARTS[currentSection] : myPart;
@@ -2354,10 +2477,11 @@ export default function App() {
           )}
           <DrawingCanvas
             sectionIndex={slotSection}
-            onDone={isCreator ? handleCreatorDone : handleJoinerDone}
+            onDone={mySlot === 0 ? handleCreatorDone : handleJoinerDone}
             peekImageData={null}
             peekHeight={null}
             anchors={null}
+            doneLabel="Done — wait for your surprise! 🎁"
           />
           {mpError && (
             <div style={{ color:"#C0392B", fontFamily:"'Nunito',sans-serif",
