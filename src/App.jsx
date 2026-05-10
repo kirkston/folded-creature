@@ -160,7 +160,8 @@ function floodFillAt(ctx, startX, startY, hexColour) {
 }
 
 function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchors, doneLabel }) {
-  const canvasRef = useRef(null);
+  const canvasRef  = useRef(null);
+  const scrollRef  = useRef(null);  // ref for the scrollable zoom container
   const [color, setColor]       = useState("#1a1a1a");
   const [brushSize, setBrushSize] = useState(5);
   const [tool, setTool]         = useState("pen");
@@ -333,30 +334,38 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
         {section.hint}
       </div>
 
-      {/* Canvas wrapper — fixed height when zoomed so page doesn't scroll */}
-      <div style={{
-        width:"100%",
-        position: zoom ? "relative" : "relative",
-        borderRadius: zoom ? 8 : 16,
-        overflow: zoom ? "scroll" : "hidden",
-        boxShadow:"0 4px 24px #C0392B22",
-        border:"2px solid #e8c8c8",
-        // Fixed height when zoomed so only canvas scrolls, not the page
-        height: zoom ? Math.min(CANVAS_H, 340) + "px" : undefined,
-        // Prevent touch events from bubbling to page scroll
-        touchAction: zoom ? "pan-x pan-y" : "none",
-        WebkitOverflowScrolling: "touch",
-        overscrollBehavior: "contain",
-      }}
-        onTouchStart={zoom ? e => e.stopPropagation() : undefined}
-        onTouchMove={zoom ? e => e.stopPropagation() : undefined}
-      >
-        <canvas ref={canvasRef} width={CANVAS_W} height={CANVAS_H} style={{
-          display:"block",
-          width: zoom ? CANVAS_W * 2 + "px" : "100%",
-          height: zoom ? CANVAS_H * 2 + "px" : "auto",
+      {/* Canvas — fixed-height scrollable container when zoomed */}
+      <div
+        ref={scrollRef}
+        style={{
+          width:"100%",
+          borderRadius: zoom ? 8 : 16,
+          overflow: zoom ? "auto" : "hidden",
+          boxShadow:"0 4px 24px #C0392B22",
+          border:"2px solid #e8c8c8",
+          height: zoom ? Math.min(CANVAS_H, 340) + "px" : undefined,
+          // Always keep touchAction none so pointer events work for drawing
+          // Scrolling in zoom mode is handled by the scrollable div itself
           touchAction: zoom ? "pan-x pan-y" : "none",
-        }} />
+          WebkitOverflowScrolling: "touch",
+          overscrollBehavior: "contain",
+          position: "relative",
+        }}
+      >
+        <canvas
+          ref={canvasRef}
+          width={CANVAS_W}
+          height={CANVAS_H}
+          style={{
+            display:"block",
+            width: zoom ? CANVAS_W * 2 + "px" : "100%",
+            height: zoom ? CANVAS_H * 2 + "px" : "auto",
+            // In zoom mode, pointer events on canvas are disabled
+            // Drawing is disabled while zoomed — scroll instead
+            touchAction: zoom ? "pan-x pan-y" : "none",
+            pointerEvents: zoom ? "none" : "auto",
+          }}
+        />
         {peekImageData && !zoom && (
           <div style={{ position:"absolute", top: PEEK_H + 2, left:8, pointerEvents:"none",
             fontFamily:"'Nunito',sans-serif", fontSize:10, color:"#c9a0a0" }}>
@@ -2058,7 +2067,7 @@ export default function App() {
         const g = await loadGame(code);
         if (!g?.slots) return;
         setGameSlots(g.slots);
-        if (g.status === "complete" || Object.keys(g.slots).length >= 3) {
+        if (g.status === "complete" || Object.values(g.slots).filter(s => s.drawing).length >= 3) {
           clearInterval(pollRef.current);
         }
       } catch(e) {}
@@ -2118,8 +2127,10 @@ export default function App() {
 
   // Async multiplayer
   const pickRandomPart = (slots) => {
-    const taken = Object.values(slots).map(s => s.part);
+    // Include reserved slots (creator's placeholder) as taken
+    const taken = Object.values(slots).map(s => s.part).filter(Boolean);
     const available = PARTS.filter(p => !taken.includes(p));
+    if (available.length === 0) return PARTS[Math.floor(Math.random() * 3)]; // fallback
     return available[Math.floor(Math.random() * available.length)];
   };
 
@@ -2133,7 +2144,8 @@ export default function App() {
     const game = {
       status: "drawing",
       anchors,
-      slots: {},   // empty — creator hasn't drawn yet
+      // Reserve slot 0 for creator with a placeholder so joiners get slots 1 & 2
+      slots: { 0: { name: myName, part, drawing: null, reserved: true } },
       createdAt: Date.now(),
     };
     try { await storeGame(code, game); }
@@ -2141,13 +2153,13 @@ export default function App() {
     setGameCode(code);
     setMySlot(0);
     setMyPart(part);
-    setGameSlots({});
+    setGameSlots(game.slots);
     setAnchors(anchors);
     setMode("multiplayer");
     setCurrentSection(PART_SECTION[part]);
     saveActiveGame(code, myName, part);
     startSharePolling(code);
-    setScreen("pre-draw-share"); // new screen — share first, then draw
+    setScreen("pre-draw-share");
   };
 
   // Called when creator finishes drawing (after sharing)
@@ -2159,8 +2171,8 @@ export default function App() {
     if (!g) { setMpError("Game not found"); return; }
     if (!g.slots) g.slots = {};
     g.slots[0] = { name: myName, part: myPart, drawing };
-    const slotCount = Object.keys(g.slots).length;
-    if (slotCount >= 3) g.status = "complete";
+    const drawingCount = Object.values(g.slots).filter(s => s.drawing).length;
+    if (drawingCount >= 3) g.status = "complete";
     try { await storeGame(gameCode, g); }
     catch(e) { setMpError("Couldn't save: " + e.message); return; }
     setGameSlots(g.slots);
@@ -2185,8 +2197,8 @@ export default function App() {
     if (!g) { setMpError("Game not found"); return; }
     if (!g.slots) g.slots = {};
     g.slots[mySlot] = { name: myName, part: myPart, drawing };
-    const slotCount = Object.keys(g.slots).length;
-    if (slotCount >= 3) g.status = "complete";
+    const drawingCount = Object.values(g.slots).filter(s => s.drawing).length;
+    if (drawingCount >= 3) g.status = "complete";
     try { await storeGame(gameCode, g); }
     catch(e) { setMpError("Couldn't save: " + e.message); return; }
     setGameSlots(g.slots);
@@ -2213,7 +2225,7 @@ export default function App() {
     catch(e) { setJoinError("Couldn't reach the game: " + e.message); return; }
     if (!g) { setJoinError("Game not found — check the code"); return; }
     if (!g.slots) g.slots = {};
-    if (g.status === "complete" || Object.keys(g.slots).length >= 3) {
+    if (g.status === "complete" || Object.values(g.slots).filter(s => s.drawing).length >= 3) {
       const byPart = {};
       Object.values(g.slots).forEach(s => { byPart[s.part] = s; });
       const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
@@ -2224,7 +2236,9 @@ export default function App() {
     const takenNames = Object.values(g.slots).map(s => s.name);
     if (takenNames.includes(myName.trim())) { setJoinError("That name is taken — pick another"); return; }
     const part = pickRandomPart(g.slots);
+    // Slot number = number of slots already in game (including reserved)
     const slot = Object.keys(g.slots).length;
+    if (slot >= 3) { setJoinError("This game is already full"); return; }
     setGameCode(code); setMySlot(slot); setMyPart(part); setGameSlots(g.slots);
     if (g.anchors) setAnchors(g.anchors);
     setMode("multiplayer"); setCurrentSection(PART_SECTION[part]);
@@ -2310,7 +2324,7 @@ export default function App() {
                   setMyName(g.myName);
                   setMyPart(g.myPart);
                   setGameSlots(game.slots || {});
-                  if (game.status === "complete" || Object.keys(game.slots || {}).length >= 3) {
+                  if (game.status === "complete" || Object.values(game.slots || {}).filter(s => s.drawing).length >= 3) {
                     const byPart = {};
                     Object.values(game.slots || {}).forEach(s => { byPart[s.part] = s; });
                     const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
