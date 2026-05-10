@@ -1208,9 +1208,6 @@ function renderCharacter(raw, opts = {}) {
     // fill above handles the colouring more cleanly.)
 
     // 5. Draw smoothed strokes on top.
-    // Pipeline: small blur to round out pixel wobble, then strong contrast to
-    // re-sharpen the edges. Net effect: the original wobbly hand-drawn lines
-    // become smooth flowing cartoon outlines but stay punchy and dark.
     const smoothStrokes = document.createElement("canvas");
     smoothStrokes.width = W; smoothStrokes.height = H;
     const ssCtx = smoothStrokes.getContext("2d");
@@ -1218,20 +1215,48 @@ function renderCharacter(raw, opts = {}) {
     ssCtx.drawImage(mask, 0, 0);
     try { ssCtx.filter = "none"; } catch(e) {}
 
-    // Now apply contrast boost — by drawing the blurred version multiple times
-    // with slight darkening, thin/light pixels disappear and chunky strokes remain.
     ctx.save();
     try { ctx.filter = "contrast(1.6) saturate(1.3)"; } catch(e) {}
     ctx.drawImage(smoothStrokes, 0, 0);
-    // Layer it again to deepen the lines
     ctx.drawImage(smoothStrokes, 0, 0);
     try { ctx.filter = "none"; } catch(e) {}
     ctx.restore();
 
-    // (Heavy shading + highlight streak removed. They were using a 16px-blurred
-    // silhouette which extended way beyond the actual drawing, producing those
-    // glow-y halos that obscured the strokes. Keeping renders crisp and flat
-    // for now — could add subtle shading later, but only if confined tightly.)
+    // 6. Seam blending — at each section boundary, apply a soft blur strip
+    // so strokes from adjacent sections blend rather than hard-cutting.
+    if (sectionBoundaries && sectionBoundaries.length > 0) {
+      const SEAM_BLUR = 8;  // px blur in the blend zone
+      const SEAM_H    = 28; // height of the blend zone around each seam
+      for (const by of sectionBoundaries) {
+        if (!by) continue;
+        const sy = Math.max(0, Math.floor(by) - SEAM_H / 2);
+        const sh = Math.min(H - sy, SEAM_H);
+        // Extract the seam strip, blur it, draw back
+        try {
+          const seamCanvas = document.createElement("canvas");
+          seamCanvas.width = W; seamCanvas.height = sh;
+          const sctx = seamCanvas.getContext("2d");
+          sctx.drawImage(ctx.canvas, 0, sy, W, sh, 0, 0, W, sh);
+          // Blur the strip
+          const blurCanvas = document.createElement("canvas");
+          blurCanvas.width = W; blurCanvas.height = sh;
+          const bctx = blurCanvas.getContext("2d");
+          try { bctx.filter = `blur(${SEAM_BLUR}px)`; } catch(e) {}
+          bctx.drawImage(seamCanvas, 0, 0);
+          try { bctx.filter = "none"; } catch(e) {}
+          // Blend back with a gradient mask — only blur the very centre of the seam
+          const grad = ctx.createLinearGradient(0, sy, 0, sy + sh);
+          grad.addColorStop(0,    "rgba(0,0,0,0)");
+          grad.addColorStop(0.35, "rgba(0,0,0,0.7)");
+          grad.addColorStop(0.65, "rgba(0,0,0,0.7)");
+          grad.addColorStop(1,    "rgba(0,0,0,0)");
+          ctx.save();
+          ctx.globalAlpha = 0.5;
+          ctx.drawImage(blurCanvas, 0, sy);
+          ctx.restore();
+        } catch(e) { /* skip seam blur if canvas ops fail */ }
+      }
+    }
 
     // 7. Find head box
     const head = findHeadBoxFromCanvas(raw);
@@ -1544,9 +1569,8 @@ function RevealCanvas({ sections, players = [] }) {
       // Compute ink bounds for each section
       const bounds = imgs.map(findInkBounds);
 
-      // Sections overlap by a few px so stitching doesn't leave a visible seam
-      // — the bottom edge of section N is drawn on top of section N+1's top.
-      const OVERLAP = 6;
+      // Larger overlap so sections blend at seams
+      const OVERLAP = 20;
       const totals = bounds.reduce((sum, b, i) => sum + b.height - (i > 0 ? OVERLAP : 0), 0);
 
       const off = document.createElement("canvas");
@@ -1561,13 +1585,34 @@ function RevealCanvas({ sections, players = [] }) {
       const yOff = [];
       bounds.forEach((b, i) => {
         yOff.push(yCursor);
-        // Draw only the inked region of this section onto the composite
         octx.drawImage(
           imgs[i],
-          0, b.top, b.srcW, b.height,           // source rect (cropped to ink)
-          0, yCursor, CANVAS_W, b.height        // dest rect at current cursor
+          0, b.top, b.srcW, b.height,
+          0, yCursor, CANVAS_W, b.height
         );
         yCursor += b.height - OVERLAP;
+      });
+
+      // Blend the seams — paint a gradient over each join zone so strokes
+      // from adjacent sections fade into each other rather than hard-cutting.
+      // We use "destination-out" to fade out the bottom of the upper section,
+      // then draw the lower section on top (already done above, just refine).
+      // Simpler approach: paint a cream→transparent gradient stripe at each seam.
+      [yOff[1], yOff[2]].forEach(seamY => {
+        if (!seamY) return;
+        const BLEND = OVERLAP;
+        // Fade bottom of upper section into the seam
+        const fadeOut = octx.createLinearGradient(0, seamY - BLEND, 0, seamY + 2);
+        fadeOut.addColorStop(0, "rgba(255,248,248,0)");
+        fadeOut.addColorStop(1, "rgba(255,248,248,0.55)");
+        octx.fillStyle = fadeOut;
+        octx.fillRect(0, seamY - BLEND, CANVAS_W, BLEND + 2);
+        // Fade top of lower section into the seam
+        const fadeIn = octx.createLinearGradient(0, seamY, 0, seamY + BLEND);
+        fadeIn.addColorStop(0, "rgba(255,248,248,0.55)");
+        fadeIn.addColorStop(1, "rgba(255,248,248,0)");
+        octx.fillStyle = fadeIn;
+        octx.fillRect(0, seamY, CANVAS_W, BLEND);
       });
 
       rawRef.current = off;
@@ -1967,6 +2012,7 @@ export default function App() {
   const [mySlot,         setMySlot]        = useState(null);
   const [myPart,         setMyPart]        = useState(null);
   const [gameSlots,      setGameSlots]     = useState({});
+  const [anchors,        setAnchors]       = useState(null);
   const [mpError,        setMpError]       = useState("");
   const [joinCode,       setJoinCode]      = useState("");
   const [joinError,      setJoinError]     = useState("");
@@ -2096,6 +2142,7 @@ export default function App() {
     setMySlot(0);
     setMyPart(part);
     setGameSlots({});
+    setAnchors(anchors);
     setMode("multiplayer");
     setCurrentSection(PART_SECTION[part]);
     saveActiveGame(code, myName, part);
@@ -2179,6 +2226,7 @@ export default function App() {
     const part = pickRandomPart(g.slots);
     const slot = Object.keys(g.slots).length;
     setGameCode(code); setMySlot(slot); setMyPart(part); setGameSlots(g.slots);
+    if (g.anchors) setAnchors(g.anchors);
     setMode("multiplayer"); setCurrentSection(PART_SECTION[part]);
     setScreen("async-drawing");
   };
@@ -2188,7 +2236,7 @@ export default function App() {
     if (gameCode) removeActiveGame(gameCode);
     setScreen("home"); setPlayers(["","",""]); setMyName(""); setMySlot(null);
     setMyPart(null); setGameCode(""); setJoinCode(""); setJoinError("");
-    setCurrentSection(0); setDrawings([]); setGameSlots({}); setMpError("");
+    setCurrentSection(0); setDrawings([]); setGameSlots({}); setMpError(""); setAnchors(null);
   };
 
   useEffect(() => () => clearInterval(pollRef.current), []);
@@ -2480,7 +2528,7 @@ export default function App() {
             onDone={mySlot === 0 ? handleCreatorDone : handleJoinerDone}
             peekImageData={null}
             peekHeight={null}
-            anchors={null}
+            anchors={anchors}
             doneLabel="Done — wait for your surprise! 🎁"
           />
           {mpError && (
