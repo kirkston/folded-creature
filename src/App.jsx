@@ -2328,7 +2328,9 @@ export default function App() {
 
   const reset = () => {
     clearInterval(pollRef.current);
-    if (gameCode) removeActiveGame(gameCode);
+    // Only remove from active games if we never actually drew
+    // (myPart being set means we drew and saved — keep it in the active list)
+    if (gameCode && !myPart) removeActiveGame(gameCode);
     setScreen("home"); setPlayers(["","",""]); setMyName(""); setMySlot(null);
     setMyPart(null); setGameCode(""); setJoinCode(""); setJoinError("");
     setCurrentSection(0); setDrawings([]); setGameSlots({}); setMpError(""); setAnchors(null);
