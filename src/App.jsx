@@ -2072,17 +2072,34 @@ export default function App() {
   const [copyFeedback,   setCopyFeedback]  = useState("");
   const [storageStatus,  setStorageStatus] = useState("checking...");
   const pollRef = useRef(null);
-  const [activeGames, setActiveGames] = useState([]); // games in progress stored locally
+  const [activeGames,  setActiveGames]  = useState([]);
+  const [recentGames,  setRecentGames]  = useState([]);
+  const [gameStatuses, setGameStatuses] = useState({});
 
-  // Load active games from localStorage on mount
+  // Load active + recent games from localStorage on mount
   useEffect(() => {
     try {
-      const stored = JSON.parse(localStorage.getItem("fc_active_games") || "[]");
-      setActiveGames(stored.filter(g => g.code && g.myName));
+      const active = JSON.parse(localStorage.getItem("fc_active_games") || "[]");
+      setActiveGames(active.filter(g => g.code && g.myName));
+      const recent = JSON.parse(localStorage.getItem("fc_recent_games") || "[]");
+      setRecentGames(recent);
     } catch(e) {}
   }, []);
 
-  // Save a game to active games list
+  // Fetch live Firebase status for each active game
+  useEffect(() => {
+    if (activeGames.length === 0) return;
+    const statuses = {};
+    Promise.all(activeGames.map(async g => {
+      try {
+        const game = await loadGame(g.code);
+        if (!game) { statuses[g.code] = { expired: true }; return; }
+        const drawingCount = Object.values(game.slots || {}).filter(s => s.drawing).length;
+        statuses[g.code] = { drawingCount, slots: game.slots || {}, status: game.status };
+      } catch(e) { statuses[g.code] = { error: true }; }
+    })).then(() => setGameStatuses(statuses));
+  }, [activeGames]);
+
   const saveActiveGame = (code, name, part) => {
     try {
       const stored = JSON.parse(localStorage.getItem("fc_active_games") || "[]");
@@ -2093,7 +2110,6 @@ export default function App() {
     } catch(e) {}
   };
 
-  // Remove a game from active list (completed or abandoned)
   const removeActiveGame = (code) => {
     try {
       const stored = JSON.parse(localStorage.getItem("fc_active_games") || "[]");
@@ -2101,6 +2117,17 @@ export default function App() {
       localStorage.setItem("fc_active_games", JSON.stringify(updated));
       setActiveGames(updated);
     } catch(e) {}
+  };
+
+  const saveRecentGame = (code, drawings, players) => {
+    try {
+      const stored = JSON.parse(localStorage.getItem("fc_recent_games") || "[]");
+      const filtered = stored.filter(g => g.code !== code);
+      // Store up to 5 completed games with their drawings for sticker re-saving
+      const updated = [{ code, drawings, players, ts: Date.now() }, ...filtered].slice(0, 5);
+      localStorage.setItem("fc_recent_games", JSON.stringify(updated));
+      setRecentGames(updated);
+    } catch(e) { console.warn("Couldn't save recent game:", e.message); }
   };
 
   // Poll share screen for updates when waiting for others
@@ -2226,6 +2253,7 @@ export default function App() {
       const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
       const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
       removeActiveGame(gameCode);
+      saveRecentGame(gameCode, ordered, names);
       setDrawings(ordered); setPlayers(names); setScreen("reveal");
     } else {
       startSharePolling(gameCode);
@@ -2252,6 +2280,7 @@ export default function App() {
       const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
       const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
       removeActiveGame(gameCode);
+      saveRecentGame(gameCode, ordered, names);
       setDrawings(ordered); setPlayers(names); setScreen("reveal");
     } else {
       saveActiveGame(gameCode, myName, myPart);
@@ -2353,51 +2382,112 @@ export default function App() {
           {storageStatus}
         </div>
 
-        {/* Games in progress */}
+        {/* Games in progress — shows live Firebase status */}
         {activeGames.length > 0 && (
-          <div style={{ padding:"0 16px 16px" }}>
+          <div style={{ padding:"0 16px 8px" }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700,
               color:"#3d1010", marginBottom:8 }}>Games in progress</div>
-            {activeGames.map(g => (
-              <button key={g.code} onClick={async () => {
-                // Load game and resume
-                try {
-                  const game = await loadGame(g.code);
-                  if (!game) { removeActiveGame(g.code); return; }
-                  setGameCode(g.code);
-                  setMyName(g.myName);
-                  setMyPart(g.myPart);
-                  setGameSlots(game.slots || {});
-                  if (game.status === "complete" || Object.values(game.slots || {}).filter(s => s.drawing).length >= 3) {
-                    const byPart = {};
-                    Object.values(game.slots || {}).forEach(s => { byPart[s.part] = s; });
-                    const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
-                    const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
-                    removeActiveGame(g.code);
-                    setDrawings(ordered); setPlayers(names); setScreen("reveal");
-                  } else {
-                    startSharePolling(g.code);
-                    setScreen("share");
-                  }
-                } catch(e) { setMpError("Couldn't load game: " + e.message); }
-              }} style={{ width:"100%", background:"#fff", border:"1.5px solid #f2c4c4",
+            {activeGames.map(g => {
+              const status = gameStatuses[g.code];
+              const drawingCount = status?.drawingCount || 0;
+              const isExpired = status?.expired;
+              const isComplete = status?.status === "complete" || drawingCount >= 3;
+              const slots = status?.slots || {};
+              return (
+                <button key={g.code} onClick={async () => {
+                  try {
+                    const game = await loadGame(g.code);
+                    if (!game) { removeActiveGame(g.code); return; }
+                    setGameCode(g.code);
+                    setMyName(g.myName);
+                    setMyPart(g.myPart);
+                    setGameSlots(game.slots || {});
+                    if (game.status === "complete" || Object.values(game.slots || {}).filter(s => s.drawing).length >= 3) {
+                      const byPart = {};
+                      Object.values(game.slots || {}).forEach(s => { byPart[s.part] = s; });
+                      const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
+                      const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+                      removeActiveGame(g.code);
+                      saveRecentGame(g.code, ordered, names);
+                      setDrawings(ordered); setPlayers(names); setScreen("reveal");
+                    } else {
+                      startSharePolling(g.code);
+                      setScreen("share");
+                    }
+                  } catch(e) { setMpError("Couldn't load: " + e.message); }
+                }} style={{ width:"100%", background:"#fff",
+                  border:`1.5px solid ${isComplete ? "#27ae60" : "#f2c4c4"}`,
+                  borderRadius:14, padding:"12px 16px", marginBottom:8, cursor:"pointer",
+                  display:"flex", alignItems:"center", gap:12,
+                  boxSizing:"border-box", textAlign:"left" }}>
+                  <div style={{ width:40, height:40, borderRadius:"50%", flexShrink:0,
+                    background: isComplete ? "#e8f8f0" : "#fdf0f0",
+                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>
+                    {isComplete ? "🎨" : drawingCount === 0 ? "✏️" : "⏳"}
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:13, fontWeight:700,
+                      color:"#3d1010" }}>
+                      {isComplete ? "Ready to reveal! 🎉" :
+                       isExpired ? "Game expired" :
+                       `${drawingCount}/3 parts drawn`}
+                    </div>
+                    <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070", marginTop:2 }}>
+                      You drew the {g.myPart} · Code: {g.code}
+                    </div>
+                    {!isComplete && !isExpired && (
+                      <div style={{ display:"flex", gap:4, marginTop:4 }}>
+                        {["head","body","legs"].map(part => {
+                          const done = Object.values(slots).some(s => s.part === part && s.drawing);
+                          return (
+                            <div key={part} style={{ fontFamily:"'Nunito',sans-serif", fontSize:10,
+                              padding:"2px 7px", borderRadius:10,
+                              background: done ? "#e8f8f0" : "#f5e8e8",
+                              color: done ? "#27ae60" : "#b07070", fontWeight: done ? 700 : 400 }}>
+                              {done ? "✓" : "?"} {part}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, flexShrink:0,
+                    color: isComplete ? "#27ae60" : "#C0392B", fontWeight:700 }}>
+                    {isComplete ? "Reveal →" : "Check →"}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Recent completed games — re-save stickers any time */}
+        {recentGames.length > 0 && (
+          <div style={{ padding:"0 16px 16px" }}>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700,
+              color:"#3d1010", marginBottom:8 }}>Recent creatures</div>
+            {recentGames.map(g => (
+              <button key={g.code} onClick={() => {
+                setDrawings(g.drawings || []);
+                setPlayers(g.players || []);
+                setScreen("reveal");
+              }} style={{ width:"100%", background:"#fff", border:"1.5px solid #e8f0e8",
                 borderRadius:14, padding:"12px 16px", marginBottom:8, cursor:"pointer",
-                display:"flex", alignItems:"center", justifyContent:"space-between",
-                boxSizing:"border-box" }}>
-                <div>
-                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:14, fontWeight:700,
-                    color:"#3d1010", textAlign:"left" }}>
-                    Code: {g.code}
+                display:"flex", alignItems:"center", gap:12,
+                boxSizing:"border-box", textAlign:"left" }}>
+                <div style={{ width:40, height:40, borderRadius:"50%", flexShrink:0,
+                  background:"#f0f8f0", display:"flex", alignItems:"center",
+                  justifyContent:"center", fontSize:20 }}>🐾</div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:13, fontWeight:700, color:"#3d1010" }}>
+                    {(g.players || []).join(", ") || "A creature"}
                   </div>
-                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070",
-                    textAlign:"left" }}>
-                    You drew the {g.myPart} as {g.myName}
+                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070" }}>
+                    {new Date(g.ts).toLocaleDateString()} · tap to re-save sticker
                   </div>
                 </div>
-                <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#C0392B",
-                  fontWeight:700 }}>
-                  Check →
-                </div>
+                <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12,
+                  color:"#27ae60", fontWeight:700, flexShrink:0 }}>View →</div>
               </button>
             ))}
           </div>
