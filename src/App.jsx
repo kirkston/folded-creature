@@ -2076,15 +2076,23 @@ export default function App() {
   const [recentGames,  setRecentGames]  = useState([]);
   const [gameStatuses, setGameStatuses] = useState({});
 
-  // Load active + recent games from localStorage on mount
-  useEffect(() => {
+  // Load active + recent games whenever the home screen is shown
+  const refreshGames = () => {
     try {
       const active = JSON.parse(localStorage.getItem("fc_active_games") || "[]");
       setActiveGames(active.filter(g => g.code && g.myName));
       const recent = JSON.parse(localStorage.getItem("fc_recent_games") || "[]");
       setRecentGames(recent);
     } catch(e) {}
-  }, []);
+  };
+
+  // Run on mount
+  useEffect(() => { refreshGames(); }, []);
+
+  // Run every time screen changes to "home"
+  useEffect(() => {
+    if (screen === "home") refreshGames();
+  }, [screen]);
 
   // Fetch live Firebase status for each active game
   useEffect(() => {
