@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Draw. Share. Surprise.</title>
+    <style>
+      *, *::before, *::after { box-sizing: border-box; }
+      html {
+        height: 100%;
+        background: #fdf5f5;
+        overflow-x: hidden;
+      }
+      body {
+        margin: 0; padding: 0; height: 100%;
+        background: #fdf5f5;
+        overscroll-behavior: none;
+        overflow-x: hidden;
+        max-width: 100vw;
+      }
+      #root {
+        height: 100%;
+        min-height: 100dvh;
+        background: #fdf5f5;
+        overflow-x: hidden;
+      }
+      :root {
+        --sat: env(safe-area-inset-top, 0px);
+        --sar: env(safe-area-inset-right, 0px);
+        --sab: env(safe-area-inset-bottom, 0px);
+        --sal: env(safe-area-inset-left, 0px);
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
