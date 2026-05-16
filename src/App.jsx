@@ -103,15 +103,15 @@ async function getStorageMode() { return await _detectStorage(); }
 function makeCode() {
   return Math.random().toString(36).slice(2,7).toUpperCase();
 }
-// Generate connection anchor points — random X positions across canvas width
+// Generate connection anchor points — fixed symmetric positions so they feel intentional.
+// Three points: left-third, centre, right-third of the canvas.
 function makeAnchors(width = 380) {
-  const pick = () => Math.round(width * (0.2 + Math.random() * 0.6));
-  // 3 anchor points per seam, spread across the middle 60% of canvas
-  const set = () => {
-    const xs = [pick(), pick(), pick()].sort((a, b) => a - b);
-    return xs;
-  };
-  return { head_to_body: set(), body_to_legs: set() };
+  const pts = [
+    Math.round(width * 0.25),
+    Math.round(width * 0.50),
+    Math.round(width * 0.75),
+  ];
+  return { head_to_body: pts, body_to_legs: pts };
 }
 
 // ─── DrawingCanvas ────────────────────────────────────────────────────────────
@@ -165,19 +165,22 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
   const [color, setColor]       = useState("#1a1a1a");
   const [brushSize, setBrushSize] = useState(5);
   const [tool, setTool]         = useState("pen");
-  const [zoom, setZoom]         = useState(false);
-  const [undoStack, setUndoStack] = useState([]); // array of dataURLs
+  const [zoom, setZoom]           = useState(false);
+  const [scrollMode, setScrollMode] = useState(false); // true=scroll, false=draw (only matters when zoomed)
+  const [undoStack, setUndoStack]  = useState([]);
   const toolRef      = useRef(tool);
   const colorRef     = useRef(color);
   const brushRef     = useRef(brushSize);
   const zoomRef      = useRef(zoom);
+  const scrollModeRef = useRef(scrollMode);
   const isDrawingRef = useRef(false);
   const lastPos      = useRef(null);
 
-  useEffect(() => { toolRef.current  = tool;      }, [tool]);
-  useEffect(() => { colorRef.current = color;     }, [color]);
-  useEffect(() => { brushRef.current = brushSize; }, [brushSize]);
-  useEffect(() => { zoomRef.current  = zoom;      }, [zoom]);
+  useEffect(() => { toolRef.current      = tool;       }, [tool]);
+  useEffect(() => { colorRef.current     = color;      }, [color]);
+  useEffect(() => { brushRef.current     = brushSize;  }, [brushSize]);
+  useEffect(() => { zoomRef.current      = zoom;       }, [zoom]);
+  useEffect(() => { scrollModeRef.current = scrollMode; }, [scrollMode]);
 
   const drawPeek = useCallback((ctx) => {
     if (!peekImageData) return;
@@ -198,28 +201,57 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
     img.src = peekImageData;
   }, [peekImageData, peekHeight]);
 
-  // Draw anchor dots — small grey marks at the connection seams in concurrent mode.
-  // Section 0 (head) shows them at bottom; section 2 (legs) at top; section 1 (body) both.
   const drawAnchors = useCallback((ctx) => {
     if (!anchors) return;
     ctx.save();
-    ctx.fillStyle = "#c9b8b8";
-    const drawDots = (xs, y) => {
+
+    const drawDots = (xs, y, direction) => {
+      // direction: "up" = arrows point up (connect from above), "down" = arrows point down
       xs.forEach(x => {
+        // Outer ring
+        ctx.fillStyle = "rgba(192,57,43,0.15)";
+        ctx.beginPath();
+        ctx.arc(x, y, 14, 0, Math.PI * 2);
+        ctx.fill();
+        // Inner dot
+        ctx.fillStyle = "#C0392B";
         ctx.beginPath();
         ctx.arc(x, y, 6, 0, Math.PI * 2);
         ctx.fill();
-        // Tiny upward/downward tick to suggest "draw into this point"
-        ctx.fillRect(x - 0.5, y - 14, 1, 8);
+        // Dashed line extending toward edge
+        ctx.strokeStyle = "#C0392B";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 3]);
+        const lineLen = 22;
+        const dy = direction === "up" ? -lineLen : lineLen;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y + dy);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Arrowhead
+        const ax = x, ay = y + dy;
+        const ah = direction === "up" ? -6 : 6;
+        ctx.fillStyle = "#C0392B";
+        ctx.beginPath();
+        ctx.moveTo(ax, ay + ah);
+        ctx.lineTo(ax - 5, ay);
+        ctx.lineTo(ax + 5, ay);
+        ctx.closePath();
+        ctx.fill();
       });
     };
+
     if (sectionIndex === 0 && anchors.head_to_body) {
-      drawDots(anchors.head_to_body, CANVAS_H - 12);
+      // Head: dots at bottom pointing down — "connect your drawing down to here"
+      drawDots(anchors.head_to_body, CANVAS_H - 20, "down");
     } else if (sectionIndex === 1) {
-      if (anchors.head_to_body) drawDots(anchors.head_to_body, 12);
-      if (anchors.body_to_legs) drawDots(anchors.body_to_legs, CANVAS_H - 12);
+      // Body: dots at top and bottom
+      if (anchors.head_to_body) drawDots(anchors.head_to_body, 20, "up");
+      if (anchors.body_to_legs) drawDots(anchors.body_to_legs, CANVAS_H - 20, "down");
     } else if (sectionIndex === 2 && anchors.body_to_legs) {
-      drawDots(anchors.body_to_legs, 12);
+      // Legs: dots at top pointing up
+      drawDots(anchors.body_to_legs, 20, "up");
     }
     ctx.restore();
   }, [anchors, sectionIndex]);
@@ -249,7 +281,7 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
     };
 
     const onStart = (e) => {
-      if (zoomRef.current) return;
+      if (scrollModeRef.current) return; // scroll mode — let container pan
       e.preventDefault();
       const pos = getPos(e);
       const ctx = canvas.getContext("2d");
@@ -268,7 +300,7 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
       ctx.fill();
     };
     const onMove  = (e) => {
-      if (zoomRef.current) return; // zoom mode — let touch scroll
+      if (scrollModeRef.current) return; // scroll mode — let container pan
       e.preventDefault();
       if (!isDrawingRef.current) return;
       const ctx = canvas.getContext("2d");
@@ -342,11 +374,9 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
           borderRadius: zoom ? 8 : 16,
           overflow: zoom ? "auto" : "hidden",
           boxShadow:"0 4px 24px #C0392B22",
-          border:"2px solid #e8c8c8",
+          border: zoom ? "2px solid #8e44ad" : "2px solid #e8c8c8",
           height: zoom ? Math.min(CANVAS_H, 340) + "px" : undefined,
-          // Always keep touchAction none so pointer events work for drawing
-          // Scrolling in zoom mode is handled by the scrollable div itself
-          touchAction: zoom ? "pan-x pan-y" : "none",
+          touchAction: (zoom && scrollMode) ? "pan-x pan-y" : "none",
           WebkitOverflowScrolling: "touch",
           overscrollBehavior: "contain",
           position: "relative",
@@ -360,10 +390,9 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
             display:"block",
             width: zoom ? CANVAS_W * 2 + "px" : "100%",
             height: zoom ? CANVAS_H * 2 + "px" : "auto",
-            // In zoom mode, pointer events on canvas are disabled
-            // Drawing is disabled while zoomed — scroll instead
-            touchAction: zoom ? "pan-x pan-y" : "none",
-            pointerEvents: zoom ? "none" : "auto",
+            touchAction: "none",
+            // Disable pointer events only in scroll mode
+            pointerEvents: (zoom && scrollMode) ? "none" : "auto",
           }}
         />
         {peekImageData && !zoom && (
@@ -375,10 +404,25 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
       </div>
 
       {zoom && (
-        <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#8e44ad",
-          textAlign:"center", background:"#f5eeff", borderRadius:8, padding:"5px 10px",
-          width:"100%", boxSizing:"border-box" }}>
-          Scroll to navigate · tap 🔍 to go back to drawing
+        <div style={{ display:"flex", gap:8, width:"100%", alignItems:"center" }}>
+          <button
+            onClick={() => setScrollMode(false)}
+            style={{ flex:1, padding:"7px 8px", borderRadius:20, border:"2px solid",
+              borderColor: !scrollMode ? "#C0392B" : "#ddd",
+              background: !scrollMode ? "#fdf0f0" : "#fff",
+              fontFamily:"'Nunito',sans-serif", fontSize:12, cursor:"pointer",
+              color: !scrollMode ? "#C0392B" : "#999", fontWeight: !scrollMode ? 700 : 400 }}>
+            ✏️ Draw
+          </button>
+          <button
+            onClick={() => setScrollMode(true)}
+            style={{ flex:1, padding:"7px 8px", borderRadius:20, border:"2px solid",
+              borderColor: scrollMode ? "#8e44ad" : "#ddd",
+              background: scrollMode ? "#f5eeff" : "#fff",
+              fontFamily:"'Nunito',sans-serif", fontSize:12, cursor:"pointer",
+              color: scrollMode ? "#8e44ad" : "#999", fontWeight: scrollMode ? 700 : 400 }}>
+            🖐 Scroll
+          </button>
         </div>
       )}
 
@@ -401,7 +445,7 @@ function DrawingCanvas({ sectionIndex, onDone, peekImageData, peekHeight, anchor
             border:"2px solid #ddd", flexShrink:0,
             boxShadow: tool==="pen" ? "0 0 0 2px #fff, 0 0 0 4px " + color + "88" : "none" }} />
           <div style={{ flex:1 }} />
-          <button onClick={() => setZoom(z => !z)} style={{
+          <button onClick={() => { setZoom(z => { if (z) setScrollMode(false); return !z; }); }} style={{
             padding:"5px 10px", borderRadius:20, fontSize:14, cursor:"pointer",
             border:`2px solid ${zoom ? "#8e44ad" : "#ddd"}`,
             background: zoom ? "#f5eeff" : "#fff", fontFamily:"'Nunito',sans-serif",
