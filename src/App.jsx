@@ -103,13 +103,12 @@ async function getStorageMode() { return await _detectStorage(); }
 function makeCode() {
   return Math.random().toString(36).slice(2,7).toUpperCase();
 }
-// Generate connection anchor points — fixed symmetric positions so they feel intentional.
-// Three points: left-third, centre, right-third of the canvas.
+// Generate connection anchor points — two symmetric points, left and right.
+// A neck or waist naturally has two connection points not three.
 function makeAnchors(width = 380) {
   const pts = [
-    Math.round(width * 0.25),
-    Math.round(width * 0.50),
-    Math.round(width * 0.75),
+    Math.round(width * 0.30),
+    Math.round(width * 0.70),
   ];
   return { head_to_body: pts, body_to_legs: pts };
 }
