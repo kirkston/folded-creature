@@ -2187,6 +2187,13 @@ export default function App() {
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
   );
 
+  // SafeTop: reliable top spacer for Capacitor native app.
+  // env(safe-area-inset-top) often doesn't work in Capacitor WebViews,
+  // so we use a fixed 60px which covers all iPhone models (44px-59px status bar).
+  const SafeTop = () => (
+    <div style={{ height:"max(env(safe-area-inset-top, 60px), 60px)", flexShrink:0, minHeight:60 }} />
+  );
+
   // Pass-and-play
   const startPassPlay = () => {
     if (players.some(p => !p.trim())) return;
@@ -2339,19 +2346,31 @@ export default function App() {
 
   // ── HOME ──────────────────────────────────────────────────────────────────────
   if (screen === "home") return (
-    <div style={page}>
+    <div style={{ ...page, flexDirection:"column", alignItems:"center", padding:0, overflowY:"auto", overflowX:"hidden" }}>
       <Fonts />
-      <div style={{ width:"100%", maxWidth:420, display:"flex", flexDirection:"column", gap:0 }}>
-        <div style={{ padding:"48px 24px 32px", textAlign:"center" }}>
-          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:42, fontWeight:900,
-            color:"#3d1010", letterSpacing:-1, lineHeight:1.1 }}>
+      <SafeTop />
+
+      {/* Hero section — fills the screen, contains all the CTAs */}
+      <div style={{
+        minHeight:"100dvh",
+        width:"100%", maxWidth:460,
+        display:"flex", flexDirection:"column",
+        paddingBottom:16, paddingLeft:16, paddingRight:16,
+        boxSizing:"border-box", overflow:"hidden",
+      }}>
+        {/* Title */}
+        <div style={{ textAlign:"center", padding:"8px 8px 12px" }}>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:52, fontWeight:900,
+            color:"#3d1010", letterSpacing:-1, lineHeight:1.05 }}>
             Draw.<br/>Share.<br/>Surprise.
           </div>
-          <p style={{ fontFamily:"'Nunito',sans-serif", color:"#b07070", fontSize:14, marginTop:12 }}>
+          <p style={{ fontFamily:"'Nunito',sans-serif", color:"#b07070", fontSize:14, marginTop:8, marginBottom:0 }}>
             A Folded Creature creation
           </p>
         </div>
-        <div style={{ padding:"0 16px", display:"flex", flexDirection:"column", gap:12 }}>
+
+        {/* CTAs — no flex:1, just natural spacing */}
+        <div style={{ display:"flex", flexDirection:"column", gap:12 }}>
           <div style={{ background:"#fff", borderRadius:20, padding:"20px 20px 16px",
             boxShadow:"0 2px 12px rgba(192,57,43,0.10)", border:"1.5px solid #f5e8e8" }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:20, fontWeight:700,
@@ -2385,123 +2404,123 @@ export default function App() {
             Pass &amp; Play (one phone)
           </button>
         </div>
-        <div style={{ fontFamily:"monospace", fontSize:10,
-          color: storageStatus.startsWith("ready · Firebase") ? "#27ae60" : "#b07070",
-          textAlign:"center", padding:"16px 16px 8px" }}>
-          {storageStatus}
-        </div>
 
-        {/* Games in progress — shows live Firebase status */}
-        {activeGames.length > 0 && (
-          <div style={{ padding:"0 16px 8px" }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700,
-              color:"#3d1010", marginBottom:8 }}>Games in progress</div>
-            {activeGames.map(g => {
-              const status = gameStatuses[g.code];
-              const drawingCount = status?.drawingCount || 0;
-              const isExpired = status?.expired;
-              const isComplete = status?.status === "complete" || drawingCount >= 3;
-              const slots = status?.slots || {};
-              return (
-                <button key={g.code} onClick={async () => {
-                  try {
-                    const game = await loadGame(g.code);
-                    if (!game) { removeActiveGame(g.code); return; }
-                    setGameCode(g.code);
-                    setMyName(g.myName);
-                    setMyPart(g.myPart);
-                    setGameSlots(game.slots || {});
-                    if (game.status === "complete" || Object.values(game.slots || {}).filter(s => s.drawing).length >= 3) {
-                      const byPart = {};
-                      Object.values(game.slots || {}).forEach(s => { byPart[s.part] = s; });
-                      const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
-                      const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
-                      removeActiveGame(g.code);
-                      saveRecentGame(g.code, ordered, names);
-                      setDrawings(ordered); setPlayers(names); setScreen("reveal");
-                    } else {
-                      startSharePolling(g.code);
-                      setScreen("share");
-                    }
-                  } catch(e) { setMpError("Couldn't load: " + e.message); }
-                }} style={{ width:"100%", background:"#fff",
-                  border:`1.5px solid ${isComplete ? "#27ae60" : "#f2c4c4"}`,
-                  borderRadius:14, padding:"12px 16px", marginBottom:8, cursor:"pointer",
-                  display:"flex", alignItems:"center", gap:12,
-                  boxSizing:"border-box", textAlign:"left" }}>
-                  <div style={{ width:40, height:40, borderRadius:"50%", flexShrink:0,
-                    background: isComplete ? "#e8f8f0" : "#fdf0f0",
-                    display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>
-                    {isComplete ? "🎨" : drawingCount === 0 ? "✏️" : "⏳"}
-                  </div>
-                  <div style={{ flex:1 }}>
-                    <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:13, fontWeight:700,
-                      color:"#3d1010" }}>
-                      {isComplete ? "Ready to reveal! 🎉" :
-                       isExpired ? "Game expired" :
-                       `${drawingCount}/3 parts drawn`}
-                    </div>
-                    <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070", marginTop:2 }}>
-                      You drew the {g.myPart} · Code: {g.code}
-                    </div>
-                    {!isComplete && !isExpired && (
-                      <div style={{ display:"flex", gap:4, marginTop:4 }}>
-                        {["head","body","legs"].map(part => {
-                          const done = Object.values(slots).some(s => s.part === part && s.drawing);
-                          return (
-                            <div key={part} style={{ fontFamily:"'Nunito',sans-serif", fontSize:10,
-                              padding:"2px 7px", borderRadius:10,
-                              background: done ? "#e8f8f0" : "#f5e8e8",
-                              color: done ? "#27ae60" : "#b07070", fontWeight: done ? 700 : 400 }}>
-                              {done ? "✓" : "?"} {part}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, flexShrink:0,
-                    color: isComplete ? "#27ae60" : "#C0392B", fontWeight:700 }}>
-                    {isComplete ? "Reveal →" : "Check →"}
-                  </div>
-                </button>
-              );
-            })}
+        {/* Scroll hint — only shows when there are games below the fold */}
+        {(activeGames.length > 0 || recentGames.length > 0) && (
+          <div style={{ textAlign:"center", padding:"8px 0 4px",
+            fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#c9a0a0" }}>
+            ↓ scroll for your games
           </div>
         )}
+      </div>
 
-        {/* Recent completed games — re-save stickers any time */}
-        {recentGames.length > 0 && (
-          <div style={{ padding:"0 16px 16px" }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700,
-              color:"#3d1010", marginBottom:8 }}>Recent creatures</div>
-            {recentGames.map(g => (
-              <button key={g.code} onClick={() => {
-                setDrawings(g.drawings || []);
-                setPlayers(g.players || []);
-                setScreen("reveal");
-              }} style={{ width:"100%", background:"#fff", border:"1.5px solid #e8f0e8",
+      {/* Games in progress — scrolls below the hero */}
+      {activeGames.length > 0 && (
+        <div style={{ width:"100%", maxWidth:460, padding:"0 16px 8px", boxSizing:"border-box" }}>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700,
+            color:"#3d1010", marginBottom:8 }}>Games in progress</div>
+          {activeGames.map(g => {
+            const status = gameStatuses[g.code];
+            const drawingCount = status?.drawingCount || 0;
+            const isExpired = status?.expired;
+            const isComplete = status?.status === "complete" || drawingCount >= 3;
+            const slots = status?.slots || {};
+            return (
+              <button key={g.code} onClick={async () => {
+                try {
+                  const game = await loadGame(g.code);
+                  if (!game) { removeActiveGame(g.code); return; }
+                  setGameCode(g.code);
+                  setMyName(g.myName);
+                  setMyPart(g.myPart);
+                  setGameSlots(game.slots || {});
+                  if (game.status === "complete" || Object.values(game.slots || {}).filter(s => s.drawing).length >= 3) {
+                    const byPart = {};
+                    Object.values(game.slots || {}).forEach(s => { byPart[s.part] = s; });
+                    const ordered = ["head","body","legs"].map(p => byPart[p]?.drawing).filter(Boolean);
+                    const names   = ["head","body","legs"].map(p => byPart[p]?.name).filter(Boolean);
+                    removeActiveGame(g.code);
+                    saveRecentGame(g.code, ordered, names);
+                    setDrawings(ordered); setPlayers(names); setScreen("reveal");
+                  } else {
+                    startSharePolling(g.code);
+                    setScreen("share");
+                  }
+                } catch(e) { setMpError("Couldn't load: " + e.message); }
+              }} style={{ width:"100%", background:"#fff",
+                border:`1.5px solid ${isComplete ? "#27ae60" : "#f2c4c4"}`,
                 borderRadius:14, padding:"12px 16px", marginBottom:8, cursor:"pointer",
                 display:"flex", alignItems:"center", gap:12,
                 boxSizing:"border-box", textAlign:"left" }}>
                 <div style={{ width:40, height:40, borderRadius:"50%", flexShrink:0,
-                  background:"#f0f8f0", display:"flex", alignItems:"center",
-                  justifyContent:"center", fontSize:20 }}>🐾</div>
+                  background: isComplete ? "#e8f8f0" : "#fdf0f0",
+                  display:"flex", alignItems:"center", justifyContent:"center", fontSize:18 }}>
+                  {isComplete ? "🎨" : drawingCount === 0 ? "✏️" : "⏳"}
+                </div>
                 <div style={{ flex:1 }}>
                   <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:13, fontWeight:700, color:"#3d1010" }}>
-                    {(g.players || []).join(", ") || "A creature"}
+                    {isComplete ? "Ready to reveal! 🎉" : isExpired ? "Game expired" : `${drawingCount}/3 parts drawn`}
                   </div>
-                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070" }}>
-                    {new Date(g.ts).toLocaleDateString()} · tap to re-save sticker
+                  <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070", marginTop:2 }}>
+                    You drew the {g.myPart} · Code: {g.code}
                   </div>
+                  {!isComplete && !isExpired && (
+                    <div style={{ display:"flex", gap:4, marginTop:4 }}>
+                      {["head","body","legs"].map(part => {
+                        const done = Object.values(slots).some(s => s.part === part && s.drawing);
+                        return (
+                          <div key={part} style={{ fontFamily:"'Nunito',sans-serif", fontSize:10,
+                            padding:"2px 7px", borderRadius:10,
+                            background: done ? "#e8f8f0" : "#f5e8e8",
+                            color: done ? "#27ae60" : "#b07070", fontWeight: done ? 700 : 400 }}>
+                            {done ? "✓" : "?"} {part}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
-                <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12,
-                  color:"#27ae60", fontWeight:700, flexShrink:0 }}>View →</div>
+                <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, flexShrink:0,
+                  color: isComplete ? "#27ae60" : "#C0392B", fontWeight:700 }}>
+                  {isComplete ? "Reveal →" : "Check →"}
+                </div>
               </button>
-            ))}
-          </div>
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Recent completed games */}
+      {recentGames.length > 0 && (
+        <div style={{ width:"100%", maxWidth:460, padding:"0 16px 40px", boxSizing:"border-box" }}>
+          <div style={{ fontFamily:"'Playfair Display',serif", fontSize:16, fontWeight:700,
+            color:"#3d1010", marginBottom:8 }}>Recent creatures</div>
+          {recentGames.map(g => (
+            <button key={g.code} onClick={() => {
+              setDrawings(g.drawings || []);
+              setPlayers(g.players || []);
+              setScreen("reveal");
+            }} style={{ width:"100%", background:"#fff", border:"1.5px solid #e8f0e8",
+              borderRadius:14, padding:"12px 16px", marginBottom:8, cursor:"pointer",
+              display:"flex", alignItems:"center", gap:12,
+              boxSizing:"border-box", textAlign:"left" }}>
+              <div style={{ width:40, height:40, borderRadius:"50%", flexShrink:0,
+                background:"#f0f8f0", display:"flex", alignItems:"center",
+                justifyContent:"center", fontSize:20 }}>🐾</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:13, fontWeight:700, color:"#3d1010" }}>
+                  {(g.players || []).join(", ") || "A creature"}
+                </div>
+                <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:11, color:"#b07070" }}>
+                  {new Date(g.ts).toLocaleDateString()} · tap to re-save sticker
+                </div>
+              </div>
+              <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12,
+                color:"#27ae60", fontWeight:700, flexShrink:0 }}>View →</div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 
@@ -2509,6 +2528,7 @@ export default function App() {
   if (screen === "lobby") return (
     <div style={page}>
       <Fonts />
+      <SafeTop />
       <div style={card}>
         <BackBtn onClick={() => setScreen("home")} />
         <h2 style={title}>Who's playing?</h2>
@@ -2538,6 +2558,7 @@ export default function App() {
   if (screen === "join") return (
     <div style={page}>
       <Fonts />
+      <SafeTop />
       <div style={card}>
         <BackBtn onClick={() => setScreen("home")} />
         <h2 style={title}>Join a Game</h2>
@@ -2583,6 +2604,7 @@ export default function App() {
     return (
       <div style={page}>
         <Fonts />
+      <SafeTop />
         <div style={card}>
           <div style={{ textAlign:"center", marginBottom:16 }}>
             <div style={{ fontSize:48 }}>🎨</div>
@@ -2661,6 +2683,7 @@ export default function App() {
     return (
       <div style={page}>
         <Fonts />
+      <SafeTop />
         <div style={{ ...card, maxWidth:460 }}>
           <div style={{ alignSelf:"flex-start", marginBottom:8 }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#3d1010" }}>
@@ -2729,6 +2752,7 @@ export default function App() {
     return (
       <div style={page}>
         <Fonts />
+      <SafeTop />
         <div style={card}>
           <div style={{ textAlign:"center", marginBottom:16 }}>
             <div style={{ fontSize:48 }}>✓</div>
@@ -2829,6 +2853,7 @@ export default function App() {
     return (
       <div style={page}>
         <Fonts />
+      <SafeTop />
         <div style={{ ...card, maxWidth:460 }}>
           <div style={{ display:"flex", gap:6, marginBottom:12, width:"100%" }}>
             {SECTIONS.map((_,i) => (
@@ -2863,6 +2888,7 @@ export default function App() {
     return (
       <div style={page}>
         <Fonts />
+      <SafeTop />
         <div style={card}>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:32, fontWeight:900,
             color:"#3d1010", textAlign:"center", marginBottom:8 }}>
@@ -2890,6 +2916,7 @@ export default function App() {
     return (
       <div style={{ ...page, alignItems:"center", padding:"12px" }}>
         <Fonts />
+      <SafeTop />
         <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, width:"100%", maxWidth:460 }}>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:32, fontWeight:900, color:"#3d1010" }}>
             Ta-Daa!
@@ -2927,14 +2954,22 @@ function BackBtn({ onClick }) {
 
 const page = {
   minHeight:"100vh",
+  minHeight:"100dvh",
   background:"#fdf5f5",
   display:"flex", alignItems:"flex-start", justifyContent:"center",
-  padding:"0 0 40px",
+  paddingBottom:40,
+  boxSizing:"border-box",
+  overflowX:"hidden",
+  width:"100%",
 };
 const card = {
   background:"#fff", borderRadius:28, padding:"24px 20px",
   display:"flex", flexDirection:"column", alignItems:"center",
-  boxShadow:"0 8px 40px #C0392B11", width:"100%", maxWidth:420, margin:"20px 12px 0",
+  boxShadow:"0 8px 40px #C0392B11",
+  width:"calc(100% - 24px)",
+  maxWidth:460,
+  margin:"0 12px 0",
+  boxSizing:"border-box",
 };
 const bigBtn = (bg, color="#fff") => ({
   width:"100%", padding:"15px", borderRadius:50, border:"none",
