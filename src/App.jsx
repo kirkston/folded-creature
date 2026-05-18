@@ -2187,13 +2187,6 @@ export default function App() {
     <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=Nunito:wght@400;600;700&display=swap" rel="stylesheet" />
   );
 
-  // SafeTop: reliable top spacer for Capacitor native app.
-  // env(safe-area-inset-top) often doesn't work in Capacitor WebViews,
-  // so we use a fixed 60px which covers all iPhone models (44px-59px status bar).
-  const SafeTop = () => (
-    <div style={{ height:"max(env(safe-area-inset-top, 60px), 60px)", flexShrink:0, minHeight:60 }} />
-  );
-
   // Pass-and-play
   const startPassPlay = () => {
     if (players.some(p => !p.trim())) return;
@@ -2344,11 +2337,64 @@ export default function App() {
 
   useEffect(() => () => clearInterval(pollRef.current), []);
 
+  // #region agent log
+  useEffect(() => {
+    const runId = "pre-fix";
+    const log = (hypothesisId, message, data) => {
+      const payload = { sessionId: "b87221", runId, hypothesisId, location: "App.jsx:layout-debug", message, data, timestamp: Date.now() };
+      fetch("http://127.0.0.1:7836/ingest/d5cd78ef-3498-4282-9ff4-f20fe8e894fc", { method: "POST", headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "b87221" }, body: JSON.stringify(payload) }).catch(() => {});
+      try {
+        const key = "fc_layout_debug_b87221";
+        const prev = JSON.parse(sessionStorage.getItem(key) || "[]");
+        prev.push(payload);
+        sessionStorage.setItem(key, JSON.stringify(prev.slice(-12)));
+      } catch (_) {}
+    };
+    const measure = () => {
+      const vw = window.innerWidth;
+      const doc = document.documentElement;
+      const root = document.getElementById("root");
+      const pageEl = root?.querySelector("[data-layout-page]") || root?.firstElementChild;
+      const cardEl = pageEl?.querySelector("[data-layout-card]");
+      const rootStyle = root ? getComputedStyle(root) : null;
+      const pageStyle = pageEl ? getComputedStyle(pageEl) : null;
+      const cardStyle = cardEl ? getComputedStyle(cardEl) : null;
+      let widest = { tag: null, w: 0, right: 0 };
+      document.querySelectorAll("#root *").forEach((el) => {
+        const r = el.getBoundingClientRect();
+        if (r.width > widest.w) widest = { tag: el.tagName, cls: el.className?.slice?.(0, 40), w: Math.round(r.width), right: Math.round(r.right) };
+      });
+      const overflowPx = Math.max(0, doc.scrollWidth - vw, (root?.scrollWidth || 0) - vw);
+      log("A", "viewport vs root", {
+        screen, vw, docScrollW: doc.scrollWidth, docClientW: doc.clientWidth, overflowPx,
+        rootOffsetW: root?.offsetWidth, rootScrollW: root?.scrollWidth,
+        rootComputedW: rootStyle?.width, rootMaxW: rootStyle?.maxWidth, rootMinW: rootStyle?.minWidth,
+      });
+      log("B", "page + card box", {
+        screen,
+        pageOffsetW: pageEl?.offsetWidth, pageScrollW: pageEl?.scrollWidth,
+        pageComputedW: pageStyle?.width, pagePadL: pageStyle?.paddingLeft, pagePadR: pageStyle?.paddingRight,
+        cardOffsetW: cardEl?.offsetWidth, cardMarginL: cardStyle?.marginLeft, cardMarginR: cardStyle?.marginRight,
+        cardComputedW: cardStyle?.width, cardTotalW: cardEl ? cardEl.offsetWidth + parseFloat(cardStyle?.marginLeft || 0) + parseFloat(cardStyle?.marginRight || 0) : null,
+      });
+      log("C", "flex min-content", {
+        screen, cardMinW: cardStyle?.minWidth, cardAlignItems: cardStyle?.alignItems,
+        pageDisplay: pageStyle?.display, pageAlignItems: pageStyle?.alignItems,
+      });
+      log("D", "widest descendant", { screen, widest, pageRight: pageEl ? Math.round(pageEl.getBoundingClientRect().right) : null });
+      log("E", "horizontal scroll state", {
+        screen, scrollX: window.scrollX, bodyScrollW: document.body.scrollWidth, canScrollX: doc.scrollWidth > vw,
+      });
+    };
+    const t = requestAnimationFrame(() => requestAnimationFrame(measure));
+    return () => cancelAnimationFrame(t);
+  }, [screen]);
+  // #endregion
+
   // ── HOME ──────────────────────────────────────────────────────────────────────
   if (screen === "home") return (
-    <div style={{ ...page, flexDirection:"column", alignItems:"center", padding:0, overflowY:"auto", overflowX:"hidden" }}>
+    <div data-layout-page style={{ ...page, flexDirection:"column", alignItems:"center", paddingLeft:0, paddingRight:0, paddingBottom:0 }}>
       <Fonts />
-      <SafeTop />
 
       {/* Hero section — fills the screen, contains all the CTAs */}
       <div style={{
@@ -2526,10 +2572,9 @@ export default function App() {
 
   // ── LOBBY (pass-and-play name entry) ──────────────────────────────────────────
   if (screen === "lobby") return (
-    <div style={page}>
+    <div data-layout-page style={page}>
       <Fonts />
-      <SafeTop />
-      <div style={card}>
+      <div data-layout-card style={card}>
         <BackBtn onClick={() => setScreen("home")} />
         <h2 style={title}>Who's playing?</h2>
         <p style={sub}>Enter 3 names and pass the phone between turns.</p>
@@ -2556,10 +2601,9 @@ export default function App() {
 
   // ── JOIN ──────────────────────────────────────────────────────────────────────
   if (screen === "join") return (
-    <div style={page}>
+    <div data-layout-page style={page}>
       <Fonts />
-      <SafeTop />
-      <div style={card}>
+      <div data-layout-card style={card}>
         <BackBtn onClick={() => setScreen("home")} />
         <h2 style={title}>Join a Game</h2>
         <p style={sub}>Enter your name and the code your friend shared.</p>
@@ -2602,10 +2646,9 @@ export default function App() {
     };
 
     return (
-      <div style={page}>
+      <div data-layout-page style={page}>
         <Fonts />
-      <SafeTop />
-        <div style={card}>
+        <div data-layout-card style={card}>
           <div style={{ textAlign:"center", marginBottom:16 }}>
             <div style={{ fontSize:48 }}>🎨</div>
             <h2 style={{ ...title, marginBottom:6 }}>Invite your friends first!</h2>
@@ -2623,8 +2666,9 @@ export default function App() {
             } catch(e) {}
           }} style={{ background:"#fdf0f0", border:"2px dashed #e8b4b4", borderRadius:16,
             padding:"14px 24px", width:"100%", boxSizing:"border-box", cursor:"pointer", marginBottom:10 }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:900,
-              color:"#C0392B", letterSpacing:6 }}>{gameCode}</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:"clamp(22px, 7.5vw, 36px)", fontWeight:900,
+              color:"#C0392B", letterSpacing:"0.12em", width:"100%", overflow:"hidden", textOverflow:"ellipsis",
+              whiteSpace:"nowrap", boxSizing:"border-box" }}>{gameCode}</div>
             <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070", marginTop:2 }}>
               {copyFeedback && copyFeedback.includes("Code") ? copyFeedback : "Tap to copy code"}
             </div>
@@ -2681,10 +2725,9 @@ export default function App() {
     const hint = PART_HINTS[part] || "";
     const otherSlots = Object.values(gameSlots || {});
     return (
-      <div style={page}>
+      <div data-layout-page style={page}>
         <Fonts />
-      <SafeTop />
-        <div style={{ ...card, maxWidth:460 }}>
+        <div data-layout-card style={{ ...card, maxWidth:460 }}>
           <div style={{ alignSelf:"flex-start", marginBottom:8 }}>
             <div style={{ fontFamily:"'Playfair Display',serif", fontSize:22, fontWeight:700, color:"#3d1010" }}>
               You're drawing the <span style={{ color:"#C0392B" }}>{part?.toUpperCase()}</span>
@@ -2750,10 +2793,9 @@ export default function App() {
     };
 
     return (
-      <div style={page}>
+      <div data-layout-page style={page}>
         <Fonts />
-      <SafeTop />
-        <div style={card}>
+        <div data-layout-card style={card}>
           <div style={{ textAlign:"center", marginBottom:16 }}>
             <div style={{ fontSize:48 }}>✓</div>
             <h2 style={{ ...title, marginBottom:6 }}>Your part is saved!</h2>
@@ -2798,8 +2840,9 @@ export default function App() {
             } catch(e) {}
           }} style={{ background:"#fdf0f0", border:"2px dashed #e8b4b4", borderRadius:16,
             padding:"14px 24px", width:"100%", boxSizing:"border-box", cursor:"pointer", marginBottom:10 }}>
-            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:36, fontWeight:900,
-              color:"#C0392B", letterSpacing:6 }}>{gameCode}</div>
+            <div style={{ fontFamily:"'Playfair Display',serif", fontSize:"clamp(22px, 7.5vw, 36px)", fontWeight:900,
+              color:"#C0392B", letterSpacing:"0.12em", width:"100%", overflow:"hidden", textOverflow:"ellipsis",
+              whiteSpace:"nowrap", boxSizing:"border-box" }}>{gameCode}</div>
             <div style={{ fontFamily:"'Nunito',sans-serif", fontSize:12, color:"#b07070", marginTop:2 }}>
               {copyFeedback && copyFeedback.includes("Code") ? copyFeedback : "Tap to copy code"}
             </div>
@@ -2851,10 +2894,9 @@ export default function App() {
     const prevDrawing = drawings[currentSection - 1];
     const playerName  = players[currentSection];
     return (
-      <div style={page}>
+      <div data-layout-page style={page}>
         <Fonts />
-      <SafeTop />
-        <div style={{ ...card, maxWidth:460 }}>
+        <div data-layout-card style={{ ...card, maxWidth:460 }}>
           <div style={{ display:"flex", gap:6, marginBottom:12, width:"100%" }}>
             {SECTIONS.map((_,i) => (
               <div key={i} style={{ flex:1, height:6, borderRadius:99,
@@ -2886,10 +2928,9 @@ export default function App() {
     const next    = players[currentSection + 1];
     const section = SECTIONS[currentSection + 1];
     return (
-      <div style={page}>
+      <div data-layout-page style={page}>
         <Fonts />
-      <SafeTop />
-        <div style={card}>
+        <div data-layout-card style={card}>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:32, fontWeight:900,
             color:"#3d1010", textAlign:"center", marginBottom:8 }}>
             Pass to<br/>{next}!
@@ -2914,9 +2955,8 @@ export default function App() {
   // ── REVEAL ────────────────────────────────────────────────────────────────────
   if (screen === "reveal") {
     return (
-      <div style={{ ...page, alignItems:"center", padding:"12px" }}>
+      <div data-layout-page style={{ ...page, alignItems:"center", paddingLeft:12, paddingRight:12, paddingBottom:12, paddingTop:"calc(12px + env(safe-area-inset-top, 0px))" }}>
         <Fonts />
-      <SafeTop />
         <div style={{ display:"flex", flexDirection:"column", alignItems:"center", gap:10, width:"100%", maxWidth:460 }}>
           <div style={{ fontFamily:"'Playfair Display',serif", fontSize:32, fontWeight:900, color:"#3d1010" }}>
             Ta-Daa!
@@ -2957,9 +2997,13 @@ const page = {
   minHeight:"100dvh",
   background:"#fdf5f5",
   display:"flex", alignItems:"flex-start", justifyContent:"center",
-  paddingBottom:40,
+  paddingTop:"env(safe-area-inset-top, 0px)",
+  paddingBottom:"calc(40px + env(safe-area-inset-bottom, 0px))",
   boxSizing:"border-box",
   overflowX:"hidden",
+  overflowY:"auto",
+  minWidth:0,
+  maxWidth:"100%",
   width:"100%",
 };
 const card = {
@@ -2968,8 +3012,10 @@ const card = {
   boxShadow:"0 8px 40px #C0392B11",
   width:"calc(100% - 24px)",
   maxWidth:460,
+  minWidth:0,
   margin:"0 12px 0",
   boxSizing:"border-box",
+  overflowX:"hidden",
 };
 const bigBtn = (bg, color="#fff") => ({
   width:"100%", padding:"15px", borderRadius:50, border:"none",
